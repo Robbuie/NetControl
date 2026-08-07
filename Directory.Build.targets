@@ -1,0 +1,14 @@
+<Project>
+
+  <!-- Imported AFTER the project body, so properties the .csproj sets are visible here.
+       Anything that has to react to a project-level flag belongs in this file rather
+       than Directory.Build.props. -->
+
+  <!-- Shipping code holds the line on warnings. The Phase 0 spikes are meant to be
+       scrappy, so they opt out with <IsSpike>true</IsSpike>, and test projects opt out too:
+       an xUnit analyser suggestion should not be able to break the build. -->
+  <PropertyGroup Condition="'$(IsSpike)' != 'true' AND '$(IsTestProject)' != 'true'">
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,22 @@
+<Project>
+
+  <!-- Shared settings for every project in the repo. Individual .csproj files
+       should only carry what is genuinely specific to them. -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+  </PropertyGroup>
+
+  <!-- TreatWarningsAsErrors is decided in Directory.Build.targets, not here.
+       This file is imported BEFORE the project body, so $(IsSpike) is not set yet
+       and any condition on it would silently evaluate against an empty string. -->
+
+</Project>

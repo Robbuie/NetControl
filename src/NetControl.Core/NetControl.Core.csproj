@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The network engine. This project MUST NOT reference any UI assembly: the same
+       code path has to drive the WPF app, the CLI, and the tests. If something in here
+       needs to report progress it raises an event; it does not know a window exists. -->
+
+  <PropertyGroup>
+    <RootNamespace>NetControl.Core</RootNamespace>
+    <AssemblyName>NetControl.Core</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The codec and reply builder are internal on purpose: they are implementation, not API.
+         They are also where protocol bugs live, so the tests need at them directly. -->
+    <InternalsVisibleTo Include="NetControl.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>bootp-spike</AssemblyName>
+    <RootNamespace>NetControl.Spike.BootpListen</RootNamespace>
+    <IsSpike>true</IsSpike>
+  </PropertyGroup>
+
+</Project>

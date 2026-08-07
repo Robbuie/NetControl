@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>devicesim</AssemblyName>
+    <RootNamespace>NetControl.DeviceSim</RootNamespace>
+
+    <!-- TODO: flip back to the repo default (true) once this has compiled clean once.
+         It was authored without an SDK available to build against. -->
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+</Project>

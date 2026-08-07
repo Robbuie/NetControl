@@ -1,0 +1,18 @@
+bin/
+obj/
+.vs/
+.vscode/
+*.user
+*.suo
+*.userprefs
+artifacts/
+TestResults/
+*.db
+*.db-shm
+*.db-wal
+*.log
+
+# Commissioning plans often contain customer site data — keep real ones out of git.
+# Sample/redacted files should be named *.sample.csv and committed deliberately.
+*.csv
+!*.sample.csv

@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>cip-spike</AssemblyName>
+    <RootNamespace>NetControl.Spike.CipStaticIp</RootNamespace>
+    <IsSpike>true</IsSpike>
+  </PropertyGroup>
+
+</Project>
