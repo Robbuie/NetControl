@@ -226,6 +226,25 @@
             <Run Text="{Binding Log.UnknownDeviceCount, Mode=OneWay}" />
             <Run Text=" unknown" />
           </TextBlock>
+
+          <!-- Which build this is. The first question anybody asks about an exe somebody copied
+               onto a laptop, and the same string the project file records - so a commissioning
+               record and the tool in front of you can be matched without opening either. -->
+          <TextBlock Style="{StaticResource Muted}" Text="  -  " />
+          <TextBlock Style="{StaticResource Muted}"
+                     Text="{Binding VersionText, Mode=OneTime}"
+                     ToolTip="The build that is running. It is written into every project file this session opens." />
+
+          <!-- Absent unless there is something to say. Both ordinary states - no update manifest
+               configured, and already on the current build - are silence, because a status bar with
+               something in it at all times is a status bar nobody reads. -->
+          <TextBlock Style="{StaticResource Muted}"
+                     Foreground="{StaticResource WarningBrush}"
+                     Margin="10,0,0,0"
+                     TextTrimming="CharacterEllipsis"
+                     Text="{Binding UpdateStatus}"
+                     ToolTip="{Binding UpdateStatus}"
+                     Visibility="{Binding UpdateStatus, Converter={StaticResource NotNullToVisible}}" />
         </StackPanel>
 
         <TextBlock Grid.Column="1"
@@ -297,6 +316,23 @@
                     Margin="4,0,0,0"
                     IsChecked="{Binding Plan.AllowDeviceReset}"
                     ToolTip="Some adapters hold a written configuration until the interface is reset. Left off, such a device is reported unverified rather than quietly restarted." />
+
+          <!-- The reverse operation. Handing a device back to a plant DHCP server is a real job at
+               the end of a commissioning - but it is also how a device stops owning its address, so
+               it is chosen by name, from a menu, behind a confirmation, rather than arrived at by
+               leaving a dropdown where somebody else left it. IsEnabled binds to the same rule the
+               commands use; a second copy of it written here is a copy that drifts. -->
+          <Menu Background="Transparent" VerticalAlignment="Center" Margin="10,0,0,0" Padding="0">
+            <MenuItem Header="Enable BOOTP/DHCP"
+                      ToolTip="Writes Configuration Control and nothing else. The addresses the device is holding are left alone, but it stops owning them and asks for one again at its next power cycle.">
+              <MenuItem Header="Enable _BOOTP on the selected device"
+                        IsEnabled="{Binding Plan.CanHandBack}"
+                        Click="OnEnableBootp" />
+              <MenuItem Header="Enable _DHCP on the selected device"
+                        IsEnabled="{Binding Plan.CanHandBack}"
+                        Click="OnEnableDhcp" />
+            </MenuItem>
+          </Menu>
 
           <TextBlock Style="{StaticResource Muted}"
                      Margin="12,0,0,0"
@@ -532,6 +568,37 @@
                          TextTrimming="CharacterEllipsis"
                          Text="{Binding Scan.Status}" />
             </StackPanel>
+
+            <!-- What the scan had to say about the plan.
+                 Its own panel rather than only a column, because a finding is a relationship
+                 between two lists - "this address is planned for that device" - and the plan row it
+                 is about may not be visible anywhere on this tab. Every finding that does concern a
+                 device in the list below also lands in that device's own Note, so nothing here has
+                 to be matched up by eye. Confirmations and unplanned devices are not listed: they
+                 are in the row notes and in the summary tally, and a panel that scrolls is one
+                 whose bottom entries nobody reads. -->
+            <Border DockPanel.Dock="Bottom"
+                    Margin="10,0,10,8"
+                    Padding="8,6"
+                    Background="{StaticResource WarningRowBrush}"
+                    BorderBrush="{StaticResource LineBrush}"
+                    BorderThickness="1"
+                    Visibility="{Binding Scan.HasFindings, Converter={StaticResource BoolToVisible}}">
+              <StackPanel>
+                <TextBlock Text="The plan and the segment disagree"
+                           FontWeight="SemiBold"
+                           Margin="0,0,0,4" />
+                <ScrollViewer MaxHeight="96" VerticalScrollBarVisibility="Auto">
+                  <ItemsControl ItemsSource="{Binding Scan.Findings}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <TextBlock Text="{Binding Message}" TextWrapping="Wrap" Margin="0,1" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </ScrollViewer>
+              </StackPanel>
+            </Border>
 
             <ListView ItemsSource="{Binding Scan.Rows}"
                       SelectedItem="{Binding Scan.SelectedRow}"

@@ -2,6 +2,7 @@ using NetControl.App.Diagnostics;
 using NetControl.App.Serving;
 using NetControl.App.ViewModels;
 using NetControl.Core.Dhcp;
+using NetControl.Core.Diagnostics;
 using NetControl.Core.Discovery;
 using NetControl.Core.Enip;
 using NetControl.Core.Interfaces;
@@ -22,12 +23,20 @@ namespace NetControl.App.Composition;
 public sealed class AppHost : IDisposable
 {
     private readonly NicMonitor _nics;
+    private readonly ITraceLog _trace;
     private bool _disposed;
 
-    public AppHost(IUiDispatcher dispatcher)
+    /// <param name="dispatcher">How Core's background events reach the UI thread.</param>
+    /// <param name="trace">
+    /// The diagnostic log, owned by the caller. Passed in rather than created here because the
+    /// graph below is the thing most likely to fail on a locked-down laptop, and a log opened
+    /// inside this constructor would be lost along with it.
+    /// </param>
+    public AppHost(IUiDispatcher dispatcher, ITraceLog? trace = null)
     {
         ArgumentNullException.ThrowIfNull(dispatcher);
 
+        _trace = trace ?? NullTraceLog.Instance;
         _nics = new NicMonitor();
 
         var policy = new StaticMapPolicy();
@@ -52,7 +61,13 @@ public sealed class AppHost : IDisposable
             policy,
             OuiDatabase.Bundled,
             project,
-            discovery: discovery);
+            discovery: discovery,
+
+            // Only the real application stamps the project file with a build. A test that
+            // constructs a view model wants an event log holding exactly what its own actions put
+            // there, and one that starts with a line about a version is a test that has to know
+            // about versions.
+            buildStamp: BuildInfo.Stamp());
 
         // Raised on a background thread by design, so the view model marshals. Subscribing before
         // Start means the first inventory arrives through the same path as every later one.
@@ -62,15 +77,39 @@ public sealed class AppHost : IDisposable
 
     public MainViewModel ViewModel { get; }
 
+    /// <summary>The diagnostic log this graph was given. Never null; may write nothing.</summary>
+    public ITraceLog Trace => _trace;
+
     /// <summary>
     /// Kicks off the checks that need to run before anything can arrive. Deliberately not done in
     /// the constructor: reading the firewall over COM can take seconds, and a window that has not
     /// appeared yet cannot tell the user why it is waiting.
     /// </summary>
-    public Task StartAsync()
+    public async Task StartAsync()
     {
         ViewModel.RefreshAdapters();
-        return ViewModel.RefreshEnvironmentCommand.ExecuteAsync(null);
+        await ViewModel.RefreshEnvironmentCommand.ExecuteAsync(null).ConfigureAwait(true);
+        await CheckForUpdatesAsync().ConfigureAwait(true);
+    }
+
+    /// <summary>
+    /// Asks a published manifest whether there is a newer build - and only if somebody configured
+    /// one. See <see cref="UpdateCheck"/>: no URL in the settings file means no connection is made
+    /// at all, which is the state every machine is in until a site decides otherwise.
+    ///
+    /// <para>Last in the startup sequence and awaited only so failures are logged in order. It
+    /// cannot throw, and nothing waits on the answer: the window is up and usable before this runs.
+    /// </para>
+    /// </summary>
+    private async Task CheckForUpdatesAsync()
+    {
+        AppSettings settings = AppSettings.Load(AppPaths.SettingsFile, _trace);
+
+        UpdateResult result = await UpdateCheck
+            .RunAsync(settings, BuildInfo.Version, trace: _trace)
+            .ConfigureAwait(true);
+
+        ViewModel.UpdateStatus = result.StatusText;
     }
 
     public void Dispose()
@@ -81,6 +120,8 @@ public sealed class AppHost : IDisposable
         }
 
         _disposed = true;
+
+        _trace.Info("Releasing the listener and the project file.");
 
         _nics.NicsChanged -= OnNicsChanged;
         ViewModel.Dispose();

@@ -18,6 +18,22 @@ public sealed partial class ScanResultViewModel : ObservableObject
     [ObservableProperty]
     private bool _isAlreadyPlanned;
 
+    /// <summary>
+    /// What the plan has to say about this device, from <see cref="PlanConformance"/>. Null until a
+    /// scan has been compared against a plan, and null for a device the plan says nothing about.
+    /// The wording is Core's, verbatim - the row states findings, it does not make them.
+    /// </summary>
+    [ObservableProperty]
+    private string? _planNote;
+
+    /// <summary>
+    /// True when the plan and this device disagree about who owns an address. Kept apart from
+    /// <see cref="PlanNote"/> because a confirmation is also a plan note, and colouring a row for
+    /// good news is how a colour stops meaning anything.
+    /// </summary>
+    [ObservableProperty]
+    private bool _planConflict;
+
     public ScanResultViewModel(DiscoveredDevice device)
     {
         ArgumentNullException.ThrowIfNull(device);
@@ -60,6 +76,13 @@ public sealed partial class ScanResultViewModel : ObservableObject
                 return $"Another device also answered on {Device.Address}. One of them is misconfigured.";
             }
 
+            // Above the claim/sender mismatch and the planning obstacle: those are things the tool
+            // cannot do, and this is something on the segment that is already wrong.
+            if (PlanNote is { } plan)
+            {
+                return plan;
+            }
+
             if (!Device.Identity.AddressMatchesSender)
             {
                 return string.Create(
@@ -77,7 +100,7 @@ public sealed partial class ScanResultViewModel : ObservableObject
     }
 
     /// <summary>Whether this row is worth colouring: something about it needs a person to look.</summary>
-    public bool NeedsAttention => Device.AddressIsContested || !Device.CanBePlanned;
+    public bool NeedsAttention => Device.AddressIsContested || !Device.CanBePlanned || PlanConflict;
 
     public string Tooltip =>
         Note.Length > 0
@@ -86,4 +109,12 @@ public sealed partial class ScanResultViewModel : ObservableObject
 
     /// <summary>Re-reads <see cref="Note"/> after the plan changed underneath the list.</summary>
     partial void OnIsAlreadyPlannedChanged(bool value) => OnPropertyChanged(nameof(Note));
+
+    partial void OnPlanNoteChanged(string? value)
+    {
+        OnPropertyChanged(nameof(Note));
+        OnPropertyChanged(nameof(Tooltip));
+    }
+
+    partial void OnPlanConflictChanged(bool value) => OnPropertyChanged(nameof(NeedsAttention));
 }

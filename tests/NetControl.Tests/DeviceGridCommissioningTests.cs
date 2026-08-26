@@ -188,6 +188,109 @@ public sealed class DeviceGridCommissioningTests : IDisposable
     }
 
     /// <summary>
+    /// Handing a device back is the one success in this app that moves a row <em>backwards</em>.
+    /// Verified means "read back off the device holding the address the plan gave it", and a device
+    /// that has just been told to ask for one is not that - a plan still showing Verified beside it
+    /// is a plan that lies to the next person who opens the file.
+    /// </summary>
+    [Fact]
+    public async Task HandingADeviceBackToBootpTakesTheRowBackOffVerified()
+    {
+        await using SimulatedAdapter adapter = await SimulatedAdapter.StartAsync();
+
+        (DeviceGridViewModel grid, DeviceRowViewModel row) = PlannedAt(adapter);
+
+        await grid.SetStaticCommand.ExecuteAsync(null);
+        Assert.Equal(DeviceState.Verified, row.State);
+
+        IPAddress held = adapter.ConfiguredIp;
+
+        await grid.EnableBootpCommand.ExecuteAsync(null);
+
+        Assert.NotEqual(DeviceState.Verified, row.State);
+        Assert.True(adapter.IsStillDynamic);
+        Assert.Null(grid.ErrorMessage);
+
+        // Configuration Control and nothing else: the device is still holding the address it had.
+        Assert.Equal(held, adapter.ConfiguredIp);
+    }
+
+    /// <summary>
+    /// Six months later the question is "when did this device stop being static". That line must
+    /// not have to be picked out of a hundred routine ones, so a hand-back is recorded as a warning
+    /// and says what will happen rather than only what was sent.
+    /// </summary>
+    [Fact]
+    public async Task RecordsAHandBackAsSomethingWorthFinding()
+    {
+        await using SimulatedAdapter adapter = await SimulatedAdapter.StartAsync();
+
+        (DeviceGridViewModel grid, DeviceRowViewModel row) = PlannedAt(adapter);
+
+        await grid.EnableDhcpCommand.ExecuteAsync(null);
+
+        IReadOnlyList<EventRecord> record = _project.Events.All();
+
+        Assert.Contains(
+            record,
+            e => e.Severity == EventSeverity.Warn
+                && e.Message.Contains("next power cycle", StringComparison.Ordinal));
+
+        Assert.Contains(
+            record,
+            e => e.DeviceId == row.Id && e.Detail is not null
+                && e.Detail.Contains("\"operation\":\"enableDhcp\"", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// A hand-back writes no address, so a missing mask cannot make it wrong - and the device most
+    /// likely to need handing back is one somebody set static months ago whose plan row has been
+    /// half edited since. Set static still refuses the same row, because it has an address to write
+    /// and no mask to write it with.
+    /// </summary>
+    [Fact]
+    public void CanHandADeviceBackWithoutAMaskEvenThoughItCannotBeServed()
+    {
+        var grid = new DeviceGridViewModel(OuiDatabase.Empty);
+        grid.Load(_project);
+        grid.AddDeviceCommand.Execute(null);
+
+        DeviceRowViewModel row = grid.Rows[0];
+        row.MacText = "00:1D:9C:C7:B0:70";
+        grid.SelectedRow = row;
+
+        // A MAC alone: there is no address to talk to, so there is nothing to hand back.
+        Assert.False(grid.CanHandBack);
+        Assert.False(grid.EnableBootpCommand.CanExecute(null));
+
+        row.IpText = "127.0.0.1";
+
+        Assert.True(grid.CanHandBack);
+        Assert.False(row.IsServable);
+        Assert.False(grid.SetStaticCommand.CanExecute(null));
+    }
+
+    /// <summary>One device at a time, whichever direction it is going.</summary>
+    [Fact]
+    public void WillNotHandADeviceBackWhileAnotherRunIsGoing()
+    {
+        var grid = new DeviceGridViewModel(OuiDatabase.Empty);
+        grid.Load(_project);
+        grid.AddDeviceCommand.Execute(null);
+
+        DeviceRowViewModel row = grid.Rows[0];
+        row.MacText = "00:1D:9C:C7:B0:70";
+        row.IpText = "127.0.0.1";
+        grid.SelectedRow = row;
+
+        Assert.True(grid.EnableDhcpCommand.CanExecute(null));
+
+        grid.IsCommissioning = true;
+        Assert.False(grid.EnableDhcpCommand.CanExecute(null));
+        Assert.False(grid.CanHandBack);
+    }
+
+    /// <summary>
     /// A plan row for the simulated adapter, addressed where the test can actually reach it.
     /// </summary>
     private (DeviceGridViewModel Grid, DeviceRowViewModel Row) PlannedAt(SimulatedAdapter adapter)

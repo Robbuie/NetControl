@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using NetControl.Core;
+using NetControl.Core.Cip;
 using NetControl.Core.Commissioning;
 using NetControl.Core.Enip;
 using NetControl.Core.Oui;
@@ -51,6 +52,9 @@ public sealed partial class DeviceGridViewModel : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RemoveDeviceCommand))]
     [NotifyCanExecuteChangedFor(nameof(SetStaticCommand))]
+    [NotifyCanExecuteChangedFor(nameof(EnableBootpCommand))]
+    [NotifyCanExecuteChangedFor(nameof(EnableDhcpCommand))]
+    [NotifyPropertyChangedFor(nameof(CanHandBack))]
     private DeviceRowViewModel? _selectedRow;
 
     /// <summary>
@@ -59,6 +63,9 @@ public sealed partial class DeviceGridViewModel : ObservableObject
     /// </summary>
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SetStaticCommand))]
+    [NotifyCanExecuteChangedFor(nameof(EnableBootpCommand))]
+    [NotifyCanExecuteChangedFor(nameof(EnableDhcpCommand))]
+    [NotifyPropertyChangedFor(nameof(CanHandBack))]
     private bool _isCommissioning;
 
     /// <summary>
@@ -333,6 +340,169 @@ public sealed partial class DeviceGridViewModel : ObservableObject
             _commissioningDeviceId = null;
         }
     }
+
+    /// <summary>
+    /// Turns BOOTP back on for the selected device, handing it back to whatever server answers on
+    /// its segment. See <see cref="HandBackAsync"/>; the two protocols are separate commands so
+    /// that neither can be reached by leaving a dropdown where somebody else left it.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanHandBack))]
+    private Task EnableBootpAsync(CancellationToken cancellationToken) =>
+        HandBackAsync(ConfigMethod.Bootp, cancellationToken);
+
+    /// <summary>Turns DHCP back on for the selected device. See <see cref="HandBackAsync"/>.</summary>
+    [RelayCommand(CanExecute = nameof(CanHandBack))]
+    private Task EnableDhcpAsync(CancellationToken cancellationToken) =>
+        HandBackAsync(ConfigMethod.Dhcp, cancellationToken);
+
+    /// <summary>
+    /// The opposite of <see cref="SetStaticAsync"/>: stops the device owning its address and hands
+    /// it back to a BOOTP or DHCP server.
+    ///
+    /// <para><b>Configuration Control and nothing else.</b> The addresses the device is holding are
+    /// left exactly as they are - see <see cref="StaticIpRequest.HandBack"/> - so this is not a
+    /// move, it is a change of who decides. The device keeps working at the address it has until
+    /// its next power cycle, and then asks.</para>
+    ///
+    /// <para>It is deliberately a separate, explicitly labelled action rather than a mode on Set
+    /// static. It is the opposite of the default, it is how a device stops being commissioned, and
+    /// it is how a device gets handed back to a plant DHCP server at the end of a job - all three
+    /// deserve to be chosen rather than arrived at.</para>
+    ///
+    /// <para>The device is addressed at its planned address, because that is where it is now, and
+    /// that address is the only one anything is sent to.</para>
+    /// </summary>
+    private async Task HandBackAsync(ConfigMethod method, CancellationToken cancellationToken)
+    {
+        if (SelectedRow is not { } row || _project is null || !row.TryBuild(out DeviceRecord? device))
+        {
+            return;
+        }
+
+        // No mask is needed and none is used: attribute 5 is not written on a hand-back. A row with
+        // an address but no mask is unservable, and is still perfectly reachable to be talked to.
+        if (device!.PlannedIp is not { } ip)
+        {
+            return;
+        }
+
+        StaticIpRequest request = StaticIpRequest.HandBack(
+            ip,
+            method,
+            device.Quirks,
+            allowReset: AllowDeviceReset,
+            port: CommissionPort);
+
+        IsCommissioning = true;
+        _commissioningDeviceId = row.Id;
+
+        try
+        {
+            // Warn rather than Info, even though it is exactly what was asked for. Six months later
+            // the question somebody has is "when did this device stop being static", and that line
+            // should not have to be picked out of a hundred routine ones.
+            Record(EventSeverity.Warn, row,
+                $"Enable {Name(method)} requested for {device.Mac} at {ip}. The device will ask for an address "
+                + "at its next power cycle."
+                + (AllowDeviceReset ? " Reset allowed." : string.Empty));
+
+            CommissionResult result = await _commissioner.RunAsync(request, cancellationToken);
+
+            ApplyHandBack(row, method, result);
+        }
+        catch (OperationCanceledException)
+        {
+            // The window is closing mid-run - same as Set static. The steps already recorded say
+            // where the device got to, and there is nothing honest to add here.
+        }
+        finally
+        {
+            IsCommissioning = false;
+            _commissioningDeviceId = null;
+        }
+    }
+
+    /// <summary>
+    /// A verified hand-back is the one success in this app that moves a row <em>backwards</em>.
+    ///
+    /// <para><see cref="DeviceState.Verified"/> means "read back off the device holding the address
+    /// the plan gave it". A device that has just been told to ask for one is not that any more, and
+    /// a plan still showing Verified beside it is a plan that lies to the next person to open it.
+    /// So the row returns to what it can honestly claim - Served if this session served it, Seen if
+    /// it has asked, Planned otherwise.</para>
+    /// </summary>
+    private void ApplyHandBack(DeviceRowViewModel row, ConfigMethod method, CommissionResult result)
+    {
+        if (result.IsVerified)
+        {
+            row.State = StateOf(row.Id, row.Mac, ServedDeviceIds());
+            row.Problem = null;
+            ClearError();
+        }
+        else
+        {
+            SetError(result.Message, result.Remediation);
+            row.Problem = result.Message;
+        }
+
+        Record(
+            result.IsVerified ? EventSeverity.Warn : EventSeverity.Error,
+            row,
+            result.Message,
+            new EventDetail()
+                .Add("operation", $"enable{method}")
+                .Add("outcome", result.Outcome)
+                .Add("wroteToDevice", result.WroteToDevice)
+                .Add("resetTheDevice", result.ResetTheDevice)
+                .Add("readback", result.Readback?.ToString())
+                .Add("reportedMethod", result.ReportedMethod));
+    }
+
+    /// <summary>
+    /// Needs an address to talk to, and nothing else.
+    ///
+    /// <para>Deliberately weaker than <see cref="CanSetStatic"/>, which wants a servable row. A
+    /// hand-back writes no address, so there is nothing for a missing mask to make wrong - and the
+    /// device most likely to need handing back is one somebody set static months ago and whose plan
+    /// row has since been half edited.</para>
+    /// </summary>
+    /// <remarks>
+    /// A property rather than a method so the menu that carries the confirmation can bind its
+    /// enablement to this exact rule. A menu item that looks available and then does nothing is a
+    /// gesture people repeat, and a second copy of the rule written in XAML is a rule that drifts.
+    /// </remarks>
+    public bool CanHandBack =>
+        !IsCommissioning
+        && _project is not null
+        && SelectedRow is { Id: > 0 } row
+        && row.TryBuild(out DeviceRecord? device)
+        && device?.PlannedIp is not null;
+
+    /// <summary>
+    /// What the file says was served, or an empty set when it cannot be read. Never throws: this
+    /// runs immediately after a write to live equipment, and a project file that has gone read-only
+    /// must not turn a completed operation into an exception.
+    /// </summary>
+    private IReadOnlySet<long> ServedDeviceIds()
+    {
+        try
+        {
+            return _project?.Assignments.ServedDeviceIds() ?? new HashSet<long>();
+        }
+        catch (PersistenceException ex)
+        {
+            SetError($"Could not re-read what has been served: {ex.Message}", ex.Remediation);
+            return new HashSet<long>();
+        }
+    }
+
+    /// <summary>What to call a configuration method in a sentence somebody reads.</summary>
+    private static string Name(ConfigMethod method) => method switch
+    {
+        ConfigMethod.Bootp => "BOOTP",
+        ConfigMethod.Dhcp => "DHCP",
+        _ => "static addressing",
+    };
 
     /// <summary>
     /// Only a readback sets <see cref="DeviceState.Verified"/>. Nothing else in the app may, and

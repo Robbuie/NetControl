@@ -10,6 +10,24 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <InvariantGlobalization>true</InvariantGlobalization>
 
+    <!-- The version, in one place.
+
+         It is in the record, not just on the About box: every project file gets an event row
+         naming the build that opened it, and the diagnostic log starts with the same string. Once
+         a bug has been found and fixed, "which version wrote this file" is the question, and a
+         commissioning record that cannot answer it is a record somebody has to re-do by hand.
+
+         A release build should also pass the commit, which the SDK appends to
+         AssemblyInformationalVersion as +<id>:
+
+             dotnet publish ... -p:SourceRevisionId=$(git rev-parse --short HEAD)
+
+         1.0.0 is reserved, deliberately: it is the build that commissions a real panel without the
+         Rockwell tool, which is Phase 1's own definition of done. Nothing before that has earned
+         the number. -->
+    <VersionPrefix>0.5.0</VersionPrefix>
+    <Product>NetControl</Product>
+
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
     <AnalysisLevel>latest</AnalysisLevel>
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>

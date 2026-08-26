@@ -65,11 +65,78 @@ public sealed record StaticIpRequest
     /// <summary>Where to look for the device afterwards.</summary>
     public IPAddress VerifyAddress => Method == ConfigMethod.Static ? Ip : DeviceAddress;
 
-    /// <summary>The addresses as attribute 5 wants them.</summary>
-    public InterfaceConfig ToInterfaceConfig() => new()
+    /// <summary>
+    /// A device being handed back to a BOOTP or DHCP server rather than pinned - the opposite
+    /// operation, and the one that undoes a commissioning.
+    ///
+    /// <para><b>Only attribute 3 is written.</b> The addresses the device is holding are left
+    /// exactly as they are, because pinning an address into a device that is about to be told to
+    /// ask for one would be contradictory. So there is no mask to supply and none is sent:
+    /// <see cref="Mask"/> is set to <see cref="IPAddress.Any"/> as a placeholder that
+    /// <see cref="ToInterfaceConfig"/> refuses to build anything out of.</para>
+    ///
+    /// <para>A factory rather than an object initialiser because the difference between this and
+    /// setting an address is one enum member, and that is far too quiet a difference for an
+    /// operation that stops a device owning its address.</para>
+    /// </summary>
+    /// <param name="deviceAddress">Where the device is now. The only address anything is sent to.</param>
+    /// <param name="method">
+    /// <see cref="ConfigMethod.Bootp"/> or <see cref="ConfigMethod.Dhcp"/>. Static is the other
+    /// operation and needs an address and a mask, so it cannot be reached through this door.
+    /// </param>
+    public static StaticIpRequest HandBack(
+        IPAddress deviceAddress,
+        ConfigMethod method,
+        DeviceQuirks quirks = DeviceQuirks.None,
+        bool allowReset = false,
+        int port = EnipSession.DefaultPort)
     {
-        Ip = Ip,
-        Mask = Mask,
-        Gateway = Gateway ?? IPAddress.Any,
-    };
+        ArgumentNullException.ThrowIfNull(deviceAddress);
+
+        if (method == ConfigMethod.Static)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(method),
+                method,
+                "Handing a device back means BOOTP or DHCP. Static is the other operation, and it needs an "
+                    + "address and a mask to write.");
+        }
+
+        return new StaticIpRequest
+        {
+            DeviceAddress = deviceAddress,
+            Ip = deviceAddress,
+            Mask = IPAddress.Any,
+            Method = method,
+            Quirks = quirks,
+            AllowReset = allowReset,
+            Port = port,
+        };
+    }
+
+    /// <summary>
+    /// The addresses as attribute 5 wants them.
+    ///
+    /// <para>Refuses for anything but <see cref="ConfigMethod.Static"/>, and the refusal is the
+    /// point rather than defensiveness. The commissioner skips attribute 5 on a hand-back, so
+    /// <see cref="Mask"/> on such a request is a placeholder nobody chose - and if that skip were
+    /// ever removed, the quiet result would be 0.0.0.0 written into a live device's mask. This
+    /// makes that mistake a crash in a test instead of a device off the network on a Sunday.</para>
+    /// </summary>
+    public InterfaceConfig ToInterfaceConfig()
+    {
+        if (Method != ConfigMethod.Static)
+        {
+            throw new InvalidOperationException(
+                $"There is no interface configuration to write for a device being set to {Method}: attribute 5 "
+                    + "is deliberately not written on a hand-back, and this request carries no mask anybody chose.");
+        }
+
+        return new InterfaceConfig
+        {
+            Ip = Ip,
+            Mask = Mask,
+            Gateway = Gateway ?? IPAddress.Any,
+        };
+    }
 }

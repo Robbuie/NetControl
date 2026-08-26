@@ -282,6 +282,64 @@ public class StaticIpCommissionerTests
         Assert.True((pinning with { Ip = IPAddress.Parse("192.168.1.60") }).MovesAddress);
     }
 
+    /// <summary>
+    /// The hand-back factory is the only way to build a request that writes attribute 3 and nothing
+    /// else, and it refuses the one method that would need an address it has not been given. The
+    /// difference between "make this permanent" and "give this up" is one enum member, which is far
+    /// too quiet a difference to leave to an object initialiser.
+    /// </summary>
+    [Fact]
+    public void HandingBackRefusesToBeUsedToSetAStaticAddress()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => StaticIpRequest.HandBack(IPAddress.Parse("192.168.1.51"), ConfigMethod.Static));
+    }
+
+    /// <summary>
+    /// A hand-back request carries no mask anybody chose, and says so rather than handing out a
+    /// structure with 0.0.0.0 in it. The commissioner never asks - attribute 5 is skipped - so this
+    /// exists to make a future change that stopped skipping it fail here, loudly, instead of on a
+    /// panel at the weekend.
+    /// </summary>
+    [Fact]
+    public void AHandBackRequestHasNoInterfaceConfigurationToWrite()
+    {
+        StaticIpRequest request = StaticIpRequest.HandBack(IPAddress.Parse("192.168.1.51"), ConfigMethod.Bootp);
+
+        Assert.Equal(IPAddress.Parse("192.168.1.51"), request.Ip);
+        Assert.False(request.MovesAddress);
+        Assert.Throws<InvalidOperationException>(() => request.ToInterfaceConfig());
+    }
+
+    /// <summary>
+    /// The whole reverse operation against the simulator: BOOTP goes back on, and the addresses the
+    /// device is holding are exactly the ones it was holding before. This is how a device is handed
+    /// back to a plant DHCP server at the end of a job, and the Rockwell tool has a button for it.
+    /// </summary>
+    [Fact]
+    public async Task HandsADeviceBackToBootpWithoutWritingAnAddress()
+    {
+        await using SimulatedAdapter adapter = await SimulatedAdapter.StartAsync();
+
+        // Pin it first, so that going back to BOOTP is a change rather than a no-op.
+        CommissionResult pinned = await Commissioner().RunAsync(Request(adapter));
+        Assert.Equal(CommissionOutcome.Verified, pinned.Outcome);
+        Assert.True(adapter.IsStatic);
+
+        IPAddress before = adapter.ConfiguredIp;
+        IPAddress maskBefore = adapter.ConfiguredMask;
+
+        CommissionResult result = await Commissioner().RunAsync(
+            StaticIpRequest.HandBack(IPAddress.Loopback, ConfigMethod.Bootp, port: adapter.Port));
+
+        Assert.Equal(CommissionOutcome.Verified, result.Outcome);
+        Assert.Equal(ConfigMethod.Bootp, result.ReportedMethod);
+        Assert.True(adapter.IsStillDynamic);
+
+        Assert.Equal(before, adapter.ConfiguredIp);
+        Assert.Equal(maskBefore, adapter.ConfiguredMask);
+    }
+
     private static StaticIpRequest Request(SimulatedAdapter adapter) => new()
     {
         DeviceAddress = SimulatedAdapter.Address,

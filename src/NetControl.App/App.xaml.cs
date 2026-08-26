@@ -1,7 +1,9 @@
 using System.Windows;
 using System.Windows.Threading;
 using NetControl.App.Composition;
+using NetControl.App.Diagnostics;
 using NetControl.App.Views;
+using NetControl.Core.Diagnostics;
 
 namespace NetControl.App;
 
@@ -18,18 +20,29 @@ public partial class App : Application
 {
     private AppHost? _host;
 
+    /// <summary>
+    /// The diagnostic log. Owned here rather than by <see cref="AppHost"/> so that a graph which
+    /// fails while being built - the failure most worth having a file about - is written down.
+    /// </summary>
+    private TraceLog? _trace;
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
 
         // Anything that gets past the handlers below still has to say something, so both the UI
-        // thread and the process-wide backstop are covered before the graph is built.
+        // thread and the process-wide backstop are covered before anything else is built.
         DispatcherUnhandledException += OnDispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += OnDomainUnhandledException;
 
+        // Open never throws - a folder it cannot write into comes back disabled - so this cannot be
+        // the reason the tool fails to start.
+        _trace = TraceLog.Open(AppPaths.Logs);
+        _trace.Info(BuildInfo.Describe());
+
         try
         {
-            _host = new AppHost(new WpfDispatcher(Dispatcher));
+            _host = new AppHost(new WpfDispatcher(Dispatcher), _trace);
         }
         catch (Exception ex) when (ex is not OutOfMemoryException and not StackOverflowException)
         {
@@ -59,6 +72,11 @@ public partial class App : Application
         _host?.Dispose();
         _host = null;
 
+        // Last of all, so anything the teardown had to say is in the file before it closes.
+        _trace?.Info("Stopped.");
+        _trace?.Dispose();
+        _trace = null;
+
         base.OnExit(e);
     }
 
@@ -71,7 +89,7 @@ public partial class App : Application
         e.Handled = true;
     }
 
-    private static void OnDomainUnhandledException(object sender, UnhandledExceptionEventArgs e)
+    private void OnDomainUnhandledException(object sender, UnhandledExceptionEventArgs e)
     {
         if (e.ExceptionObject is Exception exception)
         {
@@ -79,15 +97,30 @@ public partial class App : Application
         }
     }
 
-    private static void Report(string headline, Exception exception)
+    /// <summary>
+    /// Says what went wrong, twice: to the diagnostic log and to whoever is standing there.
+    ///
+    /// <para>The file first, and deliberately. A dialog is read by the person at the panel; the
+    /// person who has to fix it is usually somewhere else and a week later, and a stack trace that
+    /// only ever existed on a screen has been read by nobody. Naming the file in the dialog is what
+    /// turns "it crashed" into something that can be sent on.</para>
+    /// </summary>
+    private void Report(string headline, Exception exception)
     {
+        _trace?.Write(NetControl.Core.Persistence.EventSeverity.Error, headline, exception);
+
         string remediation = exception is NetControl.Core.NetControlException { Remediation: { } next }
             ? Environment.NewLine + Environment.NewLine + next
             : string.Empty;
 
+        string written = _trace?.FilePath is { } path
+            ? Environment.NewLine + Environment.NewLine + $"Written to {path}"
+            : string.Empty;
+
         MessageBox.Show(
             $"{headline}{Environment.NewLine}{Environment.NewLine}{exception.GetType().Name}: "
-                + $"{exception.Message}{remediation}{Environment.NewLine}{Environment.NewLine}{exception.StackTrace}",
+                + $"{exception.Message}{remediation}{written}"
+                + $"{Environment.NewLine}{Environment.NewLine}{exception.StackTrace}",
             "NetControl",
             MessageBoxButton.OK,
             MessageBoxImage.Error);

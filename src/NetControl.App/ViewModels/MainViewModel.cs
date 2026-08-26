@@ -66,6 +66,28 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// </summary>
     private readonly DeviceDiscovery? _discovery;
 
+    /// <summary>
+    /// The last scan, kept only so the comparison against the plan can be re-run when the plan is
+    /// edited underneath it. The devices are a snapshot and stay one - what moves is the plan half
+    /// of the comparison, and a finding about an address the user has just corrected should stop
+    /// saying so.
+    /// </summary>
+    private DiscoveryResult? _lastScan;
+
+    /// <summary>
+    /// What the update check found, or null when there is nothing worth saying - which is both the
+    /// ordinary states: no manifest URL configured, and already on the current build. Set by the
+    /// host; the view model does not reach the network.
+    /// </summary>
+    [ObservableProperty]
+    private string? _updateStatus;
+
+    /// <summary>
+    /// One line naming the build, written into every project this session touches. Null in tests
+    /// and anywhere else that has no version to claim - see the note where the app passes it.
+    /// </summary>
+    private readonly string? _buildStamp;
+
     private ProjectStore _project;
     private bool _disposed;
 
@@ -140,7 +162,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         ProjectStore project,
         TimeProvider? timeProvider = null,
         int listenPort = 67,
-        DeviceDiscovery? discovery = null)
+        DeviceDiscovery? discovery = null,
+        string? buildStamp = null)
     {
         ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentNullException.ThrowIfNull(nics);
@@ -160,6 +183,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _time = timeProvider ?? TimeProvider.System;
         _listenPort = listenPort;
         _discovery = discovery;
+        _buildStamp = buildStamp;
 
         InterfaceBar = new InterfaceBarViewModel(oui, _time, listenPort);
         Log = new RequestLogViewModel(oui, _planIndex, _time);
@@ -196,6 +220,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     /// <summary>What the last scan found. Empty, and harmless, until somebody presses Scan.</summary>
     public ScanResultsViewModel Scan { get; } = new();
+
+    /// <summary>
+    /// Which build this is, in the status bar. It is here because it is the first question anybody
+    /// asks about a copied exe, and because the project file records the same string - so a record
+    /// and the tool in front of you can be matched without opening either.
+    /// </summary>
+    public string VersionText => $"v{NetControl.App.Diagnostics.BuildInfo.Version}";
 
     public bool IsRunning => RunState is ServerRunState.Listening or ServerRunState.Starting;
 
@@ -487,6 +518,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
 
         Scan.ApplyPlan(Plan.IsPlanned);
+        RecompareScan();
     }
 
     /// <summary>
@@ -586,7 +618,28 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private void ClearLog() => Log.Clear();
 
     [RelayCommand]
-    private void ClearScan() => Scan.Clear();
+    private void ClearScan()
+    {
+        _lastScan = null;
+        Scan.Clear();
+    }
+
+    /// <summary>
+    /// Re-runs the comparison against the plan as it is now. Called after the plan changes, so a
+    /// finding about an address somebody has just fixed stops being shown as a live conflict.
+    ///
+    /// <para>It does not re-scan and never transmits: the devices are the ones the last scan found,
+    /// and how long ago that was is exactly as true as it was a moment ago.</para>
+    /// </summary>
+    private void RecompareScan()
+    {
+        if (_lastScan is null)
+        {
+            return;
+        }
+
+        Scan.ApplyConformance(CompareAgainstPlan(_lastScan));
+    }
 
     /// <summary>
     /// Asks every EtherNet/IP device on the selected adapter to identify itself.
@@ -619,6 +672,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             DiscoveryResult result =
                 await _discovery.ScanAsync(nic, cancellationToken: cancellationToken).ConfigureAwait(true);
 
+            _lastScan = result;
+
             Scan.Apply(result);
             Scan.ApplyPlan(Plan.IsPlanned);
             RecordScan(result);
@@ -630,6 +685,28 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                     $"More than one device answered on {contested}.",
                     "Two devices on one address is a fault on the segment, not in the scan. "
                         + "Unplug one and scan again to find out which is which.");
+            }
+
+            // What the scan has to say about the plan. This is the sentence neither list can
+            // produce alone, and the reason the scan was worth building: "the address you planned
+            // for the conveyor drive is one the HMI is already sitting on".
+            PlanConformanceReport conformance = CompareAgainstPlan(result);
+            Scan.ApplyConformance(conformance);
+            RecordConformance(conformance);
+
+            if (conformance.PlannedWithAddress > 0)
+            {
+                Log.AddNotice(conformance.Summary);
+            }
+
+            foreach (PlanFinding finding in conformance.Findings)
+            {
+                // Contested addresses are already above, worded for the segment rather than for
+                // the plan. Saying it twice in the same log would train people to skim it.
+                if (finding.Severity != EventSeverity.Info && finding.Kind != PlanFindingKind.ContestedAddress)
+                {
+                    Log.AddNotice(finding.Message);
+                }
             }
         }
         catch (EnipException ex)
@@ -659,6 +736,81 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         Scan.IsScanning = scanning;
         ScanCommand.NotifyCanExecuteChanged();
+    }
+
+    /// <summary>
+    /// Reads the plan and compares it against what answered. Never throws for the same reason the
+    /// recorders do not: the scan has already happened, and a project file that has gone read-only
+    /// must not turn a completed scan into an error.
+    /// </summary>
+    private PlanConformanceReport CompareAgainstPlan(DiscoveryResult result)
+    {
+        try
+        {
+            return PlanConformance.Compare(_project.Devices.All(), result);
+        }
+        catch (PersistenceException ex)
+        {
+            Log.AddNotice(
+                $"The scan finished, but the plan could not be read to compare it against: {ex.Message}",
+                ex.Remediation);
+
+            return PlanConformanceReport.None;
+        }
+    }
+
+    /// <summary>
+    /// The comparison in the append-only record: one line for the tally, and one line for each
+    /// finding that needs a person.
+    ///
+    /// <para>Each conflict gets its own row, attributed to the plan row it is about. "1 planned
+    /// address is held by a different device" is not something anybody can act on six months later;
+    /// "192.168.1.51 is planned for conveyor drive (00:1D:9C:...), but PanelView 800 (00:0F:73:...)
+    /// is already answering there" is.</para>
+    /// </summary>
+    private void RecordConformance(PlanConformanceReport report)
+    {
+        // Nothing in the plan had an address, so there was nothing to compare and the only possible
+        // findings are "this device is not in the plan" - which the scan's own row already covers.
+        // A second row saying so on every scan of a fresh project is noise in a record whose value
+        // is that everything in it is worth reading.
+        if (report.PlannedWithAddress == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            _project.Events.Append(
+                report.Severity,
+                EventCategory.Scan,
+                report.Summary,
+                detail: new EventDetail()
+                    .Add("plannedWithAddress", report.PlannedWithAddress)
+                    .Add("confirmed", report.ConfirmedCount)
+                    .Add("conflicts", report.Conflicts.Count));
+
+            foreach (PlanFinding finding in report.Findings)
+            {
+                if (finding.Severity == EventSeverity.Info)
+                {
+                    continue;
+                }
+
+                _project.Events.Append(
+                    finding.Severity,
+                    EventCategory.Scan,
+                    finding.Message,
+                    target: finding.Address?.ToString(),
+                    deviceId: finding.DeviceId > 0 ? finding.DeviceId : null,
+                    detail: new EventDetail().Add("finding", finding.Kind));
+            }
+        }
+        catch (PersistenceException ex)
+        {
+            RecordingIsIncomplete = true;
+            Log.AddNotice($"Could not record what the scan said about the plan: {ex.Message}", ex.Remediation);
+        }
     }
 
     /// <summary>
@@ -869,7 +1021,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             : null;
     }
 
-    private void OnPlanChanged(object? sender, EventArgs e) => ReloadPlan(announceProblems: false);
+    private void OnPlanChanged(object? sender, EventArgs e)
+    {
+        ReloadPlan(announceProblems: false);
+
+        // The scan list is showing what the plan said a moment ago. It has just changed.
+        Scan.ApplyPlan(Plan.IsPlanned);
+        RecompareScan();
+    }
 
     private void OnCommissionProgress(object? sender, CommissionProgressEventArgs e) =>
         RunOnUi(() => Log.AddNotice(e.Message));
@@ -911,8 +1070,38 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         ProjectPath = project.IsInMemory ? null : project.FilePath;
         IsUnsavedLocation = project.IsInMemory;
 
+        RecordBuild(project);
+
         Plan.Load(project);
         ReloadPlan();
+    }
+
+    /// <summary>
+    /// Puts the build that is about to write to this file at the top of its record.
+    ///
+    /// <para>A project file is an account of what was done to somebody's plant equipment, and an
+    /// account that cannot say which version of the tool produced it is missing the fact you need
+    /// once a bug has been found and fixed. It goes in as an ordinary event rather than a schema
+    /// column so that a file written by a later build still reads correctly in this one.</para>
+    ///
+    /// <para>Never throws, same rule as every other recorder here.</para>
+    /// </summary>
+    private void RecordBuild(ProjectStore project)
+    {
+        if (_buildStamp is not { } stamp)
+        {
+            return;
+        }
+
+        try
+        {
+            project.Events.Append(EventSeverity.Info, EventCategory.App, stamp);
+        }
+        catch (PersistenceException ex)
+        {
+            RecordingIsIncomplete = true;
+            Log.AddNotice($"Could not record which build opened this project: {ex.Message}", ex.Remediation);
+        }
     }
 
     private void SetError(string message, string? remediation)

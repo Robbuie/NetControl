@@ -208,5 +208,60 @@ public partial class MainWindow : Window
         _ => null,
     };
 
+    /// <summary>
+    /// Hands the selected device back to a BOOTP server, after asking.
+    ///
+    /// <para>The confirmation is here rather than in the view model for the ordinary reason - a
+    /// view model that puts a dialog on the screen cannot be unit tested - and it is a confirmation
+    /// at all because this is the one operation in the tool that <em>removes</em> a device's hold on
+    /// its address. Everything else either observes, or makes an address more permanent.</para>
+    /// </summary>
+    private void OnEnableBootp(object sender, RoutedEventArgs e) =>
+        HandBack("BOOTP", ViewModel?.Plan.EnableBootpCommand);
+
+    private void OnEnableDhcp(object sender, RoutedEventArgs e) =>
+        HandBack("DHCP", ViewModel?.Plan.EnableDhcpCommand);
+
+    /// <summary>
+    /// Names the device and the consequence, then runs the command. The consequence is the part
+    /// worth writing carefully: nothing appears to happen on the panel, and the device keeps working
+    /// at the address it has - right up until the next power cycle, which may be weeks away and will
+    /// not be attended by anybody who remembers this dialog.
+    /// </summary>
+    private void HandBack(string protocol, ICommand? command)
+    {
+        if (command is null
+            || ViewModel?.Plan.SelectedRow is not { } row
+            || !command.CanExecute(null))
+        {
+            return;
+        }
+
+        string device = row.Mac.IsEmpty ? "the selected device" : row.Mac.ToString();
+
+        MessageBoxResult answer = MessageBox.Show(
+            this,
+            $"Turn {protocol} back on for {device}?"
+                + Environment.NewLine + Environment.NewLine
+                + "Only Configuration Control is written - the addresses the device is holding are left "
+                + "exactly as they are, and it keeps working at the address it has now."
+                + Environment.NewLine + Environment.NewLine
+                + $"But it stops owning that address. At its next power cycle it will ask for one over "
+                + $"{protocol}, and it will not come back until something answers."
+                + Environment.NewLine + Environment.NewLine
+                + "This is the opposite of Set static.",
+            $"Enable {protocol}",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning,
+
+            // No is the default, so a return keypress aimed at something else cannot authorise it.
+            MessageBoxResult.No);
+
+        if (answer == MessageBoxResult.Yes)
+        {
+            command.Execute(null);
+        }
+    }
+
     private void OnExit(object sender, RoutedEventArgs e) => Close();
 }
