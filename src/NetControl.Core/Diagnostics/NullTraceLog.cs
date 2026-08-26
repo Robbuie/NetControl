@@ -16,6 +16,9 @@ public sealed class NullTraceLog : ITraceLog
     {
     }
 
+    /// <summary>Nothing is being written, so there is no file to name.</summary>
+    public string? FilePath => null;
+
     public void Write(EventSeverity severity, string message, Exception? error = null)
     {
         // Deliberately nothing.

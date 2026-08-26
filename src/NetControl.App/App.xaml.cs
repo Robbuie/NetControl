@@ -73,7 +73,7 @@ public partial class App : Application
         _host = null;
 
         // Last of all, so anything the teardown had to say is in the file before it closes.
-        _trace?.Info("Stopped.");
+        _trace?.Write(NetControl.Core.Persistence.EventSeverity.Info, "Stopped.");
         _trace?.Dispose();
         _trace = null;
 

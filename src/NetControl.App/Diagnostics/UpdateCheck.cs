@@ -40,6 +40,8 @@ public static class UpdateCheck
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentException.ThrowIfNullOrWhiteSpace(currentVersion);
 
+        ITraceLog log = trace ?? NullTraceLog.Instance;
+
         if (string.IsNullOrWhiteSpace(settings.UpdateManifestUrl))
         {
             return UpdateResult.NotConfigured;
@@ -54,7 +56,7 @@ public static class UpdateCheck
 
         try
         {
-            trace?.Info($"Checking {manifest} for a newer build than {currentVersion}.");
+            log.Info($"Checking {manifest} for a newer build than {currentVersion}.");
 
             using var client = handler is null ? new HttpClient() : new HttpClient(handler, disposeHandler: false);
             client.Timeout = Timeout;
@@ -73,7 +75,7 @@ public static class UpdateCheck
             }
 
             bool newer = IsNewer(latest, currentVersion);
-            trace?.Info($"{manifest} publishes {latest}; running {currentVersion}. Newer: {newer}.");
+            log.Info($"{manifest} publishes {latest}; running {currentVersion}. Newer: {newer}.");
 
             return new UpdateResult(
                 newer ? UpdateAvailability.UpdateAvailable : UpdateAvailability.Current,
@@ -85,7 +87,7 @@ public static class UpdateCheck
             or InvalidOperationException or UriFormatException)
         {
             // Includes the timeout, which on a segment with no route out is the expected answer.
-            trace?.Warn($"Update check against {manifest} did not complete.", ex);
+            log.Warn($"Update check against {manifest} did not complete.", ex);
             return new UpdateResult(UpdateAvailability.Failed, Problem: ex.Message);
         }
     }

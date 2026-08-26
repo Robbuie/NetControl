@@ -3,6 +3,7 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using NetControl.App.Composition;
+using NetControl.Core.Diagnostics;
 
 namespace NetControl.App.Diagnostics;
 
@@ -41,15 +42,18 @@ public sealed record AppSettings
     /// Reads the file if it is there. Returns <see cref="Defaults"/> otherwise, and says which in
     /// the diagnostic log so "I set that and it did nothing" has an answer.
     /// </summary>
-    public static AppSettings Load(string path, Core.Diagnostics.ITraceLog? trace = null)
+    public static AppSettings Load(string path, ITraceLog? trace = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        // NullTraceLog exists so nothing below has to ask whether there is a log.
+        ITraceLog log = trace ?? NullTraceLog.Instance;
 
         try
         {
             if (!File.Exists(path))
             {
-                trace?.Info($"No settings file at {path}; using defaults.");
+                log.Info($"No settings file at {path}; using defaults.");
                 return Defaults;
             }
 
@@ -59,17 +63,17 @@ public sealed record AppSettings
 
             if (read is null)
             {
-                trace?.Warn($"{path} parsed to nothing; using defaults.");
+                log.Warn($"{path} parsed to nothing; using defaults.");
                 return Defaults;
             }
 
-            trace?.Info($"Settings read from {path}.");
+            log.Info($"Settings read from {path}.");
             return read;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException
             or NotSupportedException or ArgumentException)
         {
-            trace?.Warn($"{path} could not be read; using defaults.", ex);
+            log.Warn($"{path} could not be read; using defaults.", ex);
             return Defaults;
         }
     }
