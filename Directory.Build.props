@@ -20,7 +20,7 @@
          A release build should also pass the commit, which the SDK appends to
          AssemblyInformationalVersion as +<id>:
 
-             dotnet publish ... -p:SourceRevisionId=$(git rev-parse --short HEAD)
+             pwsh tools/publish.ps1        (it passes the short commit for you)
 
          1.0.0 is reserved, deliberately: it is the build that commissions a real panel without the
          Rockwell tool, which is Phase 1's own definition of done. Nothing before that has earned
