@@ -42,10 +42,12 @@ src/NetControl.Core/          network engine - MUST NOT reference any UI assembl
     Enip/                     EtherNet/IP encapsulation: one session, one device
     Cip/                      CIP objects - 0xF5 is where the address lives
     Commissioning/            set static / disable BOOTP, with the readback
+    Discovery/                the scan + ARP join, and the plan-against-segment comparison
+    Diagnostics/              the rolling diagnostic log - NOT the commissioning record
     Oui/                      packed IEEE vendor table + the embedded oui.bin
 src/NetControl.App/           WPF front end - net10.0-windows; see its README
     Composition/              object graph, and the one abstraction over the WPF dispatcher
-    Diagnostics/              readiness grading; port + firewall probe run off the UI thread
+    Diagnostics/              readiness grading, the build stamp, settings, the update check
     Serving/                  listener lifetime, and "is this MAC in the plan?"
     ViewModels/               all the UI logic, deliberately free of WPF types
     Views/                    XAML, two value converters, one file dialog
@@ -75,6 +77,13 @@ dotnet run --project src/NetControl.Cli -- commission plan.csv --nic "I219"
 
 # The single exe that gets copied onto a plant laptop. Deliberately not in the .csproj: setting
 # PublishSingleFile there pins a RuntimeIdentifier onto every build and test run.
+#
+# Use the script rather than the raw command: it runs the tests first, passes the short commit as
+# SourceRevisionId so the exe reports 0.5.0+a1b2c3d rather than 0.5.0, and writes the SHA256 and the
+# update manifest beside it. DEPLOY.md is the whole story.
+pwsh tools/publish.ps1
+pwsh tools/publish.ps1 -DownloadUrl https://intranet.example/tools/netcontrol/
+
 dotnet publish src/NetControl.App -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
 
 # spikes are standalone
@@ -401,10 +410,104 @@ the stray-quote note below.
   corrected file corrects the plan rather than doubling it. Both write an `EventCategory.App` row,
   including refusals.
 
+**Handing a device back to BOOTP/DHCP is wired up.** Written in a session with no .NET SDK - so it
+is compiled but not run, and the note under "Pick up here" applies to all of it.
+
+- Core already did the work: `StaticIpRequest.Method`, the commissioner's skip of attribute 5, the
+  `VerifyAddress` switch and the wording in `Compare` were all written for this and never called.
+  What was missing was a way to ask for it, which is what this adds.
+- `StaticIpRequest.HandBack` is the only way to build one, and it refuses `ConfigMethod.Static`. The
+  difference between "make this permanent" and "give this up" was one enum member in an object
+  initialiser, which is far too quiet for an operation that stops a device owning its address.
+- `ToInterfaceConfig()` now throws for anything but Static. A hand-back request carries no mask
+  anybody chose, and if the attribute 5 skip were ever removed the quiet result would be 0.0.0.0
+  written into a live device's mask. It fails in a test instead.
+- Two commands, `EnableBootp` and `EnableDhcp`, on a menu behind a confirmation that names the
+  consequence - the device keeps working until its next power cycle, which may be weeks away and
+  will not be attended by anybody who remembers the dialog.
+- **A verified hand-back moves the row backwards.** `Verified` means "read back holding the address
+  the plan gave it"; a device just told to ask for one is not that, and a plan that goes on saying
+  Verified is a plan that lies. It returns to Served / Seen / Planned. The event is graded Warn
+  rather than Info so that "when did this device stop being static" is findable.
+- `CanHandBack` is deliberately weaker than `CanSetStatic`: no mask is needed because no address is
+  written, and the device most likely to need handing back is one somebody set static months ago
+  whose plan row has been half edited since.
+
+**The scan is compared against the plan.** `PLAN-NEXT.md`'s last open question, closed. Also
+written without an SDK.
+
+- `NetControl.Core/Discovery/PlanConformance` + `PlanConformanceReport` + `PlanFinding` +
+  `PlanFindingKind`. Pure comparison: it sends nothing, reads nothing, changes nothing.
+- **This is what the active scan was for.** The plan knows what was intended and the scan knows what
+  is answering, and neither can say "the address you planned for the conveyor drive is one the HMI
+  is already sitting on" alone. A duplicate check reading only the plan cannot say it, because the
+  HMI was never typed in - and untracked equipment is exactly what causes this.
+- **Silence is not evidence.** A planned device that did not answer produces no finding at all: it
+  may be powered down, behind a switch the scan did not reach, or not built yet. A list that
+  reported every absence as a problem is a list people learn to skip.
+- Both facts about one row are reported. "Your device is not where you meant it to be" and
+  "something else is where you meant it to be" are different problems with different fixes, and on
+  a half-commissioned panel they are usually both true.
+- A device is spoken about exactly once - the occupant of a planned address is reported against that
+  row and not also as an unplanned stranger.
+- Findings sort worst first, and by address as a *number* - otherwise .100 sorts above .2 and a list
+  read top to bottom stops matching the panel.
+- In the UI: a panel under the scan list holding the Warn and Error findings, each finding also
+  landing in its own device's row note, and one event row per conflict attributed to the plan row it
+  is about. The comparison re-runs when the plan is edited, so a finding about an address somebody
+  has just corrected stops being shown.
+- The decision table was ported to Python and run over fourteen arranged cases before it was ever
+  compiled - the same technique that found the `CsvFile` stray-quote bug. The one failure was a
+  wrong expectation in the port rather than in the code.
+
+**There is a diagnostic log, and the build says which build it is.**
+
+- `NetControl.Core/Diagnostics` - `TraceLog` behind `ITraceLog`, with `NullTraceLog` as the default
+  everywhere it is optional. Hand-rolled rather than Serilog: the requirement is small and entirely
+  known, and every package is one somebody has to justify to plant IT. Same argument as `CsvFile`.
+- **Every line is flushed**, because the most valuable entry in the file is the last one before a
+  crash. **It never throws** - it runs inside the crash handlers, where an exception would replace a
+  reportable fault with an unreportable one. A folder it cannot write to comes back as a disabled
+  log with `LastFailure` set, and startup carries on.
+- Owned by `App`, not by `AppHost`: the graph is the thing most likely to fail on a locked-down
+  laptop, and a log opened inside that constructor would be lost with it. The crash dialog now names
+  the file, which is what turns "it crashed" into something that can be sent on.
+- `%LOCALAPPDATA%\NetControl\logs`, via `AppPaths` - never beside the exe, which gets copied into
+  Downloads and onto USB sticks and sometimes into folders nobody can write to.
+- `Directory.Build.props` sets `VersionPrefix`. `BuildInfo` reads the informational version, the
+  status bar shows it, the diagnostic log opens with it, and **every project file gets an event row
+  naming the build that opened it** - a commissioning record that cannot say which version wrote it
+  is missing the fact you need once a bug has been found and fixed. Only the real app stamps it; a
+  test that constructs a view model gets an event log holding only what its own actions put there.
+- `UpdateCheck` + `AppSettings`: one GET of a small JSON manifest, **off unless a URL is configured**
+  in `%LOCALAPPDATA%\NetControl\settings.json`. It never downloads and never installs. Both quiet
+  states are silent; a check that was asked for and failed is not. See `DEPLOY.md`.
+- `tools/publish.ps1` runs the tests, publishes the single-file exe, stamps the commit, and writes
+  the SHA256 and the manifest beside it.
+
 ### Pick up here
 
-**Everything in `src/` compiles and all 410 tests pass.** There is no outstanding code work that can
-be done at a desk. What is left is looking at it and putting it in front of hardware.
+**Everything above the "Pick up here" line that was added most recently was written without an SDK
+to build against.** Compile and run the tests first; that is the check, not a formality - it is how
+the one wrong test in the discovery work was found. After that the same rule as before applies:
+what is left is looking at it and putting it in front of hardware.
+
+**Four things have never been on screen.** A XAML binding that does not resolve costs nothing at
+build time and shows an empty column at the bench:
+
+- the Enable BOOTP/DHCP menu and its confirmation,
+- the plan-versus-segment findings panel under the scan list,
+- the version in the status bar,
+- the update-check line beside it - point `updateManifestUrl` at a file that does not exist and
+  check it says so quietly rather than blocking startup.
+
+**Check the log file exists.** Run the app and look in `%LOCALAPPDATA%\NetControl\logs`. Then make
+it fail - open a project file that another program is holding - and check the dialog names the log
+and the log holds the stack.
+
+**Do the hand-back against the simulator before doing it against anything else**, and watch the row
+go from Verified back to Planned. That transition is the only thing in the app that moves a row
+backwards, and getting it wrong leaves a plan claiming a device is commissioned when it is not.
 
 **Open the window and press Scan.** The tests are green but nobody has looked at the new tab, and a
 XAML binding that does not resolve costs nothing at build time and shows an empty column at the
@@ -579,6 +682,21 @@ Not proven, and not provable at a desk:
 
 ### Also worth knowing
 
+- **The diagnostic log and the commissioning record are different things and must stay that way.**
+  `EventLog`, inside the project file, is the account of what was done to somebody's plant
+  equipment: append-only at the database level, and the one somebody may have to stand behind.
+  `TraceLog`, in `%LOCALAPPDATA%`, is a rolling text file for working out why the *application*
+  misbehaved, and it is deleted on a schedule. Do not put equipment events in the second, and do
+  not put stack traces in the first.
+- `DEPLOY.md` - what ships, where the version comes from, and how the update check is turned on.
+  `README.md` is the front door for somebody who has never seen the repository.
+- `AppPaths` is the only place that decides where the tool keeps its own files, and it is
+  `%LOCALAPPDATA%` rather than beside the exe on purpose. The product is a single file that gets
+  copied into Downloads and onto USB sticks, and a tool that writes its log next to itself will one
+  day silently write nothing.
+- **`AppPaths.cs` carries its own `using System.IO;`** and always will. `UseWPF` drops `System.IO`
+  from the implicit usings, so a file that is entirely about paths has to ask for it back. See the
+  C# specifics section.
 - `src/NetControl.DeviceSim/NetControl.DeviceSim.csproj` still sets `TreatWarningsAsErrors=false`
   with a TODO to flip it. It compiles clean now, so that can be tried.
 - `src/NetControl.App/README.md` - why the view models have no WPF types in them, how the

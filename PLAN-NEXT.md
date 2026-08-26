@@ -340,12 +340,29 @@ Same discipline as Serve mode, and for the same reason - this writes to live equ
   A commissioning record whose most consequential operation is missing is not a record.
 - Changing the address of a device that already has an `Assignment` row warns first (A6).
 
-### C4. Putting a device back on DHCP
+### C4. Putting a device back on DHCP - **done**
 
-The same write with attribute 3 set the other way. Worth having and worth being deliberate about,
-because it is how a device gets handed back to a plant DHCP server - but it is the opposite of the
-default, so it is a separate, explicitly labelled action rather than a dropdown that starts on the
-wrong value.
+The same write with attribute 3 set the other way, and it turned out Core had already been built
+for it - `StaticIpRequest.Method`, the skip of attribute 5, `VerifyAddress` and the wording in
+`Compare` were all there and had never been called. What was missing was any way to ask.
+
+Settled the way this said: a separate, explicitly labelled action, and in fact two of them -
+**Enable BOOTP** and **Enable DHCP** on their own menu, behind a confirmation naming the
+consequence. No dropdown, and nothing that starts on the wrong value.
+
+Two things came out of building it that were not in the design:
+
+- **`StaticIpRequest.HandBack` is the only way to construct one**, and it refuses Static. The
+  difference between the two operations was one enum member in an object initialiser, which is far
+  too quiet for the one that stops a device owning its address. `ToInterfaceConfig()` now throws for
+  anything but Static, so a future change that stopped skipping attribute 5 fails in a test rather
+  than writing 0.0.0.0 into a live device's mask.
+- **A verified hand-back moves the row backwards**, to Served / Seen / Planned. `Verified` means
+  "read back holding the address the plan gave it", and a device that has just been told to ask for
+  one is not that. A plan that goes on claiming it is is a plan that lies to whoever opens the file
+  next. The event is graded Warn rather than Info for the same reason: six months later the question
+  is "when did this device stop being static", and that line should not have to be picked out of a
+  hundred routine ones.
 
 ---
 
@@ -373,9 +390,18 @@ exists this tool does the first half and leaves the second to the tool it replac
   the only honest check for that is the live segment - which is what the scan now does.
 - ~~**ODVA vendor ID table**~~ Settled in B2: show the product name, ship no second vendor table.
 - ~~**Grid validation UX**~~ Settled in A3: in the row.
-- **How does the plan get compared against a scan?** The scan finds two devices on one address, but
-  nothing yet says "the address you planned for the conveyor drive is one the HMI is already
-  sitting on". That is the check the whole of Part B was for, and it is a small step from here.
+- ~~**How does the plan get compared against a scan?**~~ **Done.** `NetControl.Core/Discovery/
+  PlanConformance` joins the plan to a `DiscoveryResult` and words each finding once, in Core.
+  Two things were decided while building it and are worth keeping:
+
+  - **Silence is not evidence.** A planned device that did not answer produces no finding at all. It
+    may be powered down, behind a switch the scan did not reach, or not built yet, and a list that
+    reported every absence as a problem is a list people learn to skip. Findings are only ever about
+    something that answered.
+  - **Both facts about a row are reported, not the worse one.** "Your device is not where you meant
+    it to be" and "something else is where you meant it to be" have different fixes, and on a
+    half-commissioned panel they are usually both true. Collapsing them would hide whichever one
+    somebody was about to act on.
 
 ## Still true, and still the highest-value thing
 
