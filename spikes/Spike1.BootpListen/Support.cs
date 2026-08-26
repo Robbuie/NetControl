@@ -55,7 +55,7 @@ public static class Csv
 
 /// <summary>
 /// Minimal OUI lookup. Enough to tell a Rockwell adapter from a laptop while the
-/// full IEEE OUI database is not yet bundled — that lands in Phase 1.
+/// full IEEE OUI database is not yet bundled - that lands in Phase 1.
 /// </summary>
 public static class Oui
 {

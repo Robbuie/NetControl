@@ -4,7 +4,7 @@ using System.Net.Sockets;
 using NetControl.DeviceSim;
 
 // ---------------------------------------------------------------------------
-// NetControl.DeviceSim — a fake EtherNet/IP adapter.
+// NetControl.DeviceSim - a fake EtherNet/IP adapter.
 //
 // Lets both spikes (and later the real tool) be developed and regression-tested
 // without hardware. Quirks reproduce the ways real devices misbehave.
@@ -123,7 +123,7 @@ if (emitBootp || emitDhcp)
 
 if (tasks.Count == 0)
 {
-    Console.Error.WriteLine("Nothing to do — --no-cip was given with no --bootp or --dhcp.");
+    Console.Error.WriteLine("Nothing to do - --no-cip was given with no --bootp or --dhcp.");
     return 1;
 }
 
@@ -169,7 +169,7 @@ static void ListQuirks()
 }
 
 static void Usage() => Console.WriteLine("""
-    devicesim — a fake EtherNet/IP adapter for hardware-free development
+    devicesim - a fake EtherNet/IP adapter for hardware-free development
 
     USAGE
       devicesim [--ip <a>] [--mask <m>] [--gw <g>] [--mac <m>] [--name <s>]

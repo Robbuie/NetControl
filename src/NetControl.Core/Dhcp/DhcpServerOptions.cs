@@ -18,7 +18,7 @@ public sealed record DhcpServerOptions
 
     /// <summary>
     /// Only handle requests that arrived on this interface index. Null means every adapter.
-    /// Requests from other adapters are still reported — being told "your device is asking, but
+    /// Requests from other adapters are still reported - being told "your device is asking, but
     /// on the adapter you did not pick" is the single most useful thing this tool can say.
     /// </summary>
     public int? InterfaceIndexFilter { get; init; }
@@ -36,7 +36,7 @@ public sealed record DhcpServerOptions
     /// <summary>
     /// Refuse to start when something else holds the port in a way that makes delivery ambiguous.
     /// A component that cannot do its job must say so and stop, not degrade into a half-working
-    /// state — that is the entire complaint about the tool this replaces.
+    /// state - that is the entire complaint about the tool this replaces.
     /// </summary>
     public bool RefuseOnSeriousPortConflict { get; init; } = true;
 }

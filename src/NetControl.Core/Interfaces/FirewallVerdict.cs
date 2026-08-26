@@ -18,7 +18,7 @@ public enum FirewallVerdict
 
     /// <summary>
     /// No rule matches. Windows blocks unsolicited inbound traffic by default, so requests will
-    /// most likely be dropped — though the first bind may raise the standard Windows prompt.
+    /// most likely be dropped - though the first bind may raise the standard Windows prompt.
     /// </summary>
     NoRule = 3,
 

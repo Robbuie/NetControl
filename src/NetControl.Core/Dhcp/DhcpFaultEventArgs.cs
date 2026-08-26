@@ -2,7 +2,7 @@ namespace NetControl.Core.Dhcp;
 
 /// <summary>
 /// Something went wrong that the user needs to know about. The message names the likely cause and
-/// the remediation names the next action — a bare error code is not a product.
+/// the remediation names the next action - a bare error code is not a product.
 /// </summary>
 public sealed class DhcpFaultEventArgs(
     DateTimeOffset timestamp,

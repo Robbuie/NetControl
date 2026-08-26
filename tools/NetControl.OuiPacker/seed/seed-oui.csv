@@ -1,0 +1,38 @@
+# Curated seed registry - NOT the IEEE registry.
+#
+# This exists so the vendor lookup works in a fresh clone, before anyone has run
+# `dotnet run --project tools/NetControl.OuiPacker -- update`. It is the same handful of
+# industrial prefixes the Phase 0 BOOTP listener spike carried, in IEEE CSV format so the
+# same parser reads it.
+#
+# Everything here is MA-L (24-bit). The seed contains no MA-M or MA-S assignments, because a
+# 28- or 36-bit block is exactly the kind of value that is not worth asserting from memory -
+# the packed format handles them and the real registry supplies them.
+#
+# The whole file is replaced the first time the registry is refreshed. Do not grow it: if a
+# vendor is missing, run the update.
+#
+# Lines starting with '#' are comments; everything else is Registry,Assignment,Organization
+# Name,Organization Address exactly as IEEE publishes it.
+Registry,Assignment,Organization Name,Organization Address
+MA-L,0000BC,Rockwell Automation,
+MA-L,000F73,Rockwell Automation,
+MA-L,001D9C,Rockwell Automation,
+MA-L,5C8816,Rockwell Automation,
+MA-L,E49069,Rockwell Automation,
+MA-L,F45433,Rockwell Automation,
+MA-L,080006,Siemens AG,
+MA-L,000E8C,Siemens AG,
+MA-L,001B1B,Siemens AG,
+MA-L,208756,Siemens AG,
+MA-L,000054,Schneider Electric,
+MA-L,0080F4,Telemecanique Electrique,
+MA-L,00204A,Lantronix,
+MA-L,0090E8,Moxa Technologies,
+MA-L,003011,HMS Industrial Networks,
+MA-L,001C06,Turck,
+MA-L,0007AF,Red Lion Controls,
+MA-L,000DE0,Cognex Corporation,
+MA-L,006035,Teledyne DALSA,
+MA-L,000105,Beckhoff Automation,
+MA-L,00111A,Beckhoff Automation,

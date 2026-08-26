@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The registry refresh chore, as source you can step through rather than a script you have to
+       trust. It is in the solution so it opens in Visual Studio next to everything else, but it is
+       not part of the shipped product: nothing in src/ references it, and it never runs during a
+       build. Refreshing the OUI table is a deliberate act with a reviewable diff. -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>NetControl.OuiPacker</RootNamespace>
+    <AssemblyName>NetControl.OuiPacker</AssemblyName>
+    <IsPackable>false</IsPackable>
+
+    <!-- Same reasoning as the spikes: this is a maintenance tool, not shipped code. An analyser
+         suggestion in a CSV parser should not be able to stop someone building the product. -->
+    <IsTool>true</IsTool>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The only reference. OuiPackWriter is internal to the engine and this project is named in
+         its InternalsVisibleTo, so the packed format stays described in exactly one place. -->
+    <ProjectReference Include="..\..\src\NetControl.Core\NetControl.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Copied out so the pack command's seed option works from the build output as well as
+         from the repo. -->
+    <None Update="seed/seed-oui.csv" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

@@ -5,13 +5,13 @@ Both are also usable as stopgap tools right now.
 
 **Prerequisite:** .NET 10 SDK. `winget install Microsoft.DotNet.SDK.10`
 
-> Neither of these has been compiled yet — there was no .NET SDK available where they were
+> Neither of these has been compiled yet - there was no .NET SDK available where they were
 > written. Expect to fix a typo or two on first build. The protocol logic is the part that
 > matters; the compiler will find anything else fast.
 
 ---
 
-## Spike 1 — `bootp-spike`
+## Spike 1 - `bootp-spike`
 
 Answers: *can we reliably tell which NIC a request arrived on, and can we tell the user why nothing is arriving?*
 
@@ -20,7 +20,7 @@ cd spikes\Spike1.BootpListen
 dotnet run -- --list
 ```
 
-`--list` prints every IPv4 interface with its index, address, link state, and speed — then tells
+`--list` prints every IPv4 interface with its index, address, link state, and speed - then tells
 you **which process owns UDP/67**, by name and PID. That alone diagnoses a good share of
 "the tool sees nothing" cases.
 
@@ -40,7 +40,7 @@ dotnet run -- --nic "I219" --csv panel-A.csv
 CSV columns: `mac,ip,mask,gateway,hostname` (header row optional, `#` comments allowed).
 
 **If the device never sees the reply,** re-run with `--send-mode persocket`. Pinning a limited
-broadcast to one interface is the one thing this spike is genuinely testing — `IP_UNICAST_IF` is
+broadcast to one interface is the one thing this spike is genuinely testing - `IP_UNICAST_IF` is
 the tidier mechanism, the per-socket bind is the reliable fallback. Which one wins on your
 hardware is a finding worth writing down.
 
@@ -52,7 +52,7 @@ hardware is a finding worth writing down.
 
 ---
 
-## Spike 2 — `cip-spike`
+## Spike 2 - `cip-spike`
 
 Answers: *can we set a static IP over EtherNet/IP and prove it took?* This is the replacement
 for the Rockwell tool's "Disable BOOTP/DHCP" button.
@@ -67,14 +67,14 @@ dotnet run -- set 192.168.1.51 --ip 10.10.20.51 --mask 255.255.255.0 --gw 10.10.
 ```
 
 **Always run `read` first.** It reports the Configuration Capability bits, which tell you up
-front whether the device will accept a write at all — if the address is pinned by rotary
+front whether the device will accept a write at all - if the address is pinned by rotary
 switches on the module, no amount of CIP will move it, and `read` says so instead of failing
 mysteriously.
 
 `set` does three things in order, because order matters on real hardware:
 
-1. Configuration Control (attr 3) → Static
-2. Interface Configuration (attr 5) → the addresses
+1. Configuration Control (attr 3) -> Static
+2. Interface Configuration (attr 5) -> the addresses
 3. Reconnect, read both back, and compare against what was asked for
 
 It only prints VERIFIED if step 3 agrees. Anything else is reported as a mismatch with the
@@ -94,7 +94,7 @@ Those findings become the per-device quirk table in Phase 2.
 Deliberate, since these are spikes:
 
 - No retransmission or duplicate-request suppression in the BOOTP server
-- No lease tracking — assignments are static mappings only
+- No lease tracking - assignments are static mappings only
 - OUI table is a hand-written handful of vendors, not the full IEEE registry
 - `set` writes name servers as 0.0.0.0 and an empty domain name
 - No logging to file; console only

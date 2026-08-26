@@ -8,7 +8,7 @@ namespace NetControl.Spike.CipStaticIp;
 /// <summary>
 /// EtherNet/IP encapsulation layer (Volume 2) over TCP 44818.
 /// Everything on the wire here is LITTLE-endian, including the IP addresses
-/// carried inside CIP attributes — which is the opposite of what you expect
+/// carried inside CIP attributes - which is the opposite of what you expect
 /// coming from normal socket code, and a very common source of bugs.
 /// </summary>
 public sealed class EnipSession : IDisposable
@@ -131,7 +131,7 @@ public sealed class EnipSession : IDisposable
         BinaryPrimitives.WriteUInt16LittleEndian(h[2..], (ushort)data.Length);
         BinaryPrimitives.WriteUInt32LittleEndian(h[4..], session);
         BinaryPrimitives.WriteUInt32LittleEndian(h[8..], 0);     // status, zero on request
-        // h[12..20] sender context — left zero
+        // h[12..20] sender context - left zero
         BinaryPrimitives.WriteUInt32LittleEndian(h[20..], 0);    // options
         data.CopyTo(h[HeaderLength..]);
         return frame;
@@ -188,7 +188,7 @@ public sealed class EnipSession : IDisposable
     // -----------------------------------------------------------------------
     /// <summary>
     /// ListIdentity (0x0063) broadcast on UDP 44818. Every EtherNet/IP device on the
-    /// segment answers with its identity — the feature the Rockwell tool lacks entirely.
+    /// segment answers with its identity - the feature the Rockwell tool lacks entirely.
     /// </summary>
     public static async Task<List<DeviceIdentity>> DiscoverAsync(
         IPAddress? localAddress = null, int listenMs = 2000, CancellationToken ct = default)

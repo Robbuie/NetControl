@@ -1,0 +1,26 @@
+# Line endings.
+#
+# The committed blobs are LF. A Windows working tree is CRLF, and .editorconfig asks for CRLF.
+# Without this file git compares the two literally, so every file in the repository shows as
+# entirely rewritten and `git diff` becomes useless - which is how a real change hides inside a
+# 200-line wall of whitespace during review.
+#
+# text=auto normalises to LF on the way into the index; eol=crlf checks out CRLF. Nothing about
+# the working tree changes, only what git stores and how it compares.
+* text=auto eol=crlf
+
+# Anything a shell has to execute needs LF even on Windows, or the interpreter sees a stray CR
+# on the shebang line and fails with a message that names a command nobody typed.
+*.sh text eol=lf
+
+# Generated and binary. oui.bin is the packed IEEE registry: text=auto guesses well but a wrong
+# guess here would silently corrupt a file whose contents nobody eyeballs, and a corrupt vendor
+# table shows up as plausible wrong names rather than an error.
+*.bin binary
+*.pcap binary
+*.pcapng binary
+*.db binary
+*.png binary
+*.ico binary
+*.dll binary
+*.exe binary

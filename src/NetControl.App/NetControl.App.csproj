@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- The WPF front end. It is a thin shell over NetControl.Core: every fact it shows comes
+       from an event or a repository, and nothing in here opens a socket or a database. -->
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+
+    <!-- Overrides the net10.0 in Directory.Build.props. WPF needs the Windows-specific
+         framework, and this project is the only place in src/ that does. Directory.Build.props is
+         imported before the project body, so setting it here wins. -->
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+
+    <!-- Also overrides Directory.Build.props, and this one is not optional: WPF does not work
+         under InvariantGlobalization. Every FrameworkElement's Language property defaults to
+         XmlLanguage.GetLanguage("en-US"), and constructing that CultureInfo throws
+         CultureNotFoundException while PredefinedCulturesOnly is on. It throws inside
+         InitializeComponent, which runs before OnStartup and therefore before any handler can
+         exist, and a WinExe has no console for the trace to land in - so the whole symptom is a
+         process that exits with no window and no message whatsoever.
+
+         The engine is unaffected. NetControl.Core states CultureInfo.InvariantCulture wherever a
+         format has to be stable - SqlTime above all, since the event log's sort order depends on
+         it - so nothing written to a project file changes shape because the UI process can now
+         see real cultures. -->
+    <InvariantGlobalization>false</InvariantGlobalization>
+
+    <RootNamespace>NetControl.App</RootNamespace>
+    <AssemblyName>netcontrol</AssemblyName>
+
+    <!-- Packaging is a publish concern and stays out of the project file on purpose. Setting
+         SelfContained and PublishSingleFile here would pin a RuntimeIdentifier onto every
+         `dotnet build` and `dotnet test`, which makes an ordinary edit-compile loop pull a whole
+         runtime down. The publish command that produces the single exe is in CLAUDE.md and in
+         this project's README; it is not repeated here, because an XML comment cannot contain a
+         double hyphen and every switch it needs has one. -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- MVVM plumbing: INotifyPropertyChanged and ICommand, generated at compile time rather
+         than hand-written a hundred times. Chosen over a full framework (Prism, Caliburn) because
+         it is a source generator plus a small runtime library and brings no container, no
+         navigation model and no conventions - which keeps the dependency easy to justify. -->
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\NetControl.Core\NetControl.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- "UI logic lives in view models and is testable without a window." The view models are
+         deliberately free of WPF types so the test project can construct them directly. -->
+    <InternalsVisibleTo Include="NetControl.Tests" />
+  </ItemGroup>
+
+</Project>

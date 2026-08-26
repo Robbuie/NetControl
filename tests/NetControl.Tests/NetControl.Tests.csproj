@@ -5,7 +5,27 @@
     <AssemblyName>NetControl.Tests</AssemblyName>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+
+    <!-- Windows-specific because this project references NetControl.App, and a net10.0 project
+         cannot reference a net10.0-windows one. Nothing is lost: the tool is Windows-only, the
+         P/Invokes and the firewall COM reads already are, and the roadmap asks for view models
+         that are testable without a window - which is what this reference buys.
+
+         UseWPF so the WPF reference assemblies resolve. No test opens a window; the view models
+         are deliberately free of WPF types and marshal through IUiDispatcher, so they run on the
+         xUnit thread with no message pump. -->
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Turning on UseWPF removes System.IO from the implicit usings, because WPF ships its own
+         Path (System.Windows.Shapes.Path) and the SDK will not let the two collide by default.
+         This project has never referenced a WPF namespace and does touch files in nearly every
+         persistence test, so it asks for System.IO back explicitly. A file in NetControl.App that
+         needs it should carry its own `using System.IO;` rather than have it forced project-wide. -->
+    <Using Include="System.IO" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
@@ -15,6 +35,14 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\NetControl.Core\NetControl.Core.csproj" />
+    <ProjectReference Include="..\..\src\NetControl.App\NetControl.App.csproj" />
+
+    <!-- The simulator is the regression harness for everything CIP. It reproduces the quirks real
+         adapters have - a device that returns success and discards the write, one whose address is
+         pinned by switches - and those are the cases the commissioning sequence exists to handle.
+         Started in-process on a spare loopback port, it makes the whole EtherNet/IP path testable
+         at a desk with no hardware plugged in. -->
+    <ProjectReference Include="..\..\src\NetControl.DeviceSim\NetControl.DeviceSim.csproj" />
   </ItemGroup>
 
 </Project>

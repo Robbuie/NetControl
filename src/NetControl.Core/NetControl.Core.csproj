@@ -13,6 +13,43 @@
     <!-- The codec and reply builder are internal on purpose: they are implementation, not API.
          They are also where protocol bugs live, so the tests need at them directly. -->
     <InternalsVisibleTo Include="NetControl.Tests" />
+
+    <!-- The packer is a CSV parser wrapped around OuiPackWriter. Keeping the writer internal and
+         beside the reader is what stops the packed format from being described in two places. -->
+    <InternalsVisibleTo Include="NetControl.OuiPacker" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The packed IEEE OUI registry. Generated, committed, and refreshed by
+         the OuiPacker tool's update command. Oui/README.md is the procedure.
+
+         Embedded rather than shipped alongside because the product is a single self-contained exe
+         copied onto a plant laptop, and a vendor lookup that depends on a file surviving that copy
+         is a lookup that silently stops working. LogicalName is stated so the resource name cannot
+         drift if the folder is ever renamed - OuiDatabase asks for this exact string. -->
+    <EmbeddedResource Include="Oui/oui.bin" LogicalName="NetControl.Core.Oui.oui.bin" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Project files. The first and, for Phases 1-3, the only third-party dependency in the
+         engine: a project file has to be one file that survives being copied to a USB stick, and
+         hand-rolling that on top of JSON would mean writing a worse database.
+
+         Microsoft.Data.Sqlite rather than Microsoft.Data.Sqlite.Core because this one brings the
+         native e_sqlite3 bundle with it, which is what keeps `dotnet publish` a single
+         self-contained exe with no installer - the packaging rule the whole product depends on. -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.10" />
+
+    <!-- Pins the native SQLite build. Microsoft.Data.Sqlite 10.0.x still resolves
+         SQLitePCLRaw 2.1.11, whose bundled SQLite predates 3.50.2 and so carries CVE-2025-6965
+         (GHSA-2m69-gcr7-jv3q) - a memory-corruption bug, and NuGetAudit fails the build on it.
+         2.1.12 is the same 2.1.x API with a patched SQLite underneath; the 3.x line is a
+         restructure (the native library moves to SourceGear.sqlite3) and is not worth taking for
+         a CVE fix. A direct reference wins over a transitive one, so this is all it takes.
+
+         Remove this once Microsoft.Data.Sqlite ships a version that resolves 2.1.12 or later on
+         its own. `dotnet list package` with the include-transitive switch shows what it picked. -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
   </ItemGroup>
 
 </Project>

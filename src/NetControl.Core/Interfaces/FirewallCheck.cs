@@ -8,7 +8,7 @@ namespace NetControl.Core.Interfaces;
 /// datagram reach this executable?
 ///
 /// It reads only. Creating a rule needs elevation, and the finding from Phase 0 that binding
-/// UDP/67 works as a standard user is worth protecting — a tool you can copy to a plant laptop
+/// UDP/67 works as a standard user is worth protecting - a tool you can copy to a plant laptop
 /// and run is a different product from one that needs a ticket raised with IT. So when a rule is
 /// missing we hand the user the exact elevated command rather than demanding elevation ourselves.
 ///
@@ -259,7 +259,7 @@ public static class FirewallCheck
             allows,
             blocks,
             $"No firewall rule allows inbound UDP/{port} for this program. Windows blocks unsolicited "
-                + "inbound traffic by default, so requests will probably be dropped — though Windows may "
+                + "inbound traffic by default, so requests will probably be dropped - though Windows may "
                 + "prompt once when the socket first binds.",
             $"Allow it when prompted, or run this from an elevated prompt:{Environment.NewLine}"
                 + BuildAddRuleCommand(port, exePath));

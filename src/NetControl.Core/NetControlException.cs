@@ -5,7 +5,7 @@ namespace NetControl.Core;
 ///
 /// The rule that matters is in the message, not the type: a failure the user can see must
 /// name the likely cause and the next action. "Bind failed" is useless; "UDP/67 is held by
-/// vmnetdhcp.exe (pid 4312) — stop that service and retry" is the product.
+/// vmnetdhcp.exe (pid 4312) - stop that service and retry" is the product.
 /// </summary>
 public abstract class NetControlException : Exception
 {

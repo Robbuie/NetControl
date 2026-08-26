@@ -7,7 +7,7 @@ namespace NetControl.Core;
 /// A 48-bit IEEE MAC address.
 ///
 /// This exists as a value type rather than a string because MACs are the primary key of the
-/// whole product — the plan is keyed on them, the request log is keyed on them, and the
+/// whole product - the plan is keyed on them, the request log is keyed on them, and the
 /// retransmit filter is keyed on them. Strings invite "AA:BB:.." vs "aa-bb-.." mismatches that
 /// show up as a device silently never matching its plan, which is exactly the class of bug this
 /// tool exists to eliminate. Parse once at the edge, compare as an integer everywhere else.
@@ -48,10 +48,10 @@ public readonly record struct MacAddress
     /// </summary>
     public bool IsBroadcast => _value == 0x0000_FFFF_FFFF_FFFFUL;
 
-    /// <summary>Bit 0 of the first octet — a group/multicast address, never a real adapter.</summary>
+    /// <summary>Bit 0 of the first octet - a group/multicast address, never a real adapter.</summary>
     public bool IsMulticast => ((_value >> 40) & 0x01) != 0;
 
-    /// <summary>Bit 1 of the first octet — locally administered, so an OUI lookup is meaningless.</summary>
+    /// <summary>Bit 1 of the first octet - locally administered, so an OUI lookup is meaningless.</summary>
     public bool IsLocallyAdministered => ((_value >> 40) & 0x02) != 0;
 
     /// <summary>
@@ -59,6 +59,15 @@ public readonly record struct MacAddress
     /// <see cref="IsLocallyAdministered"/> is false.
     /// </summary>
     public uint Oui => (uint)(_value >> 24);
+
+    /// <summary>
+    /// The whole 48-bit address as an integer, byte 0 of the wire format most significant.
+    ///
+    /// Internal because outside this assembly a MAC should stay an opaque value - the moment it
+    /// becomes a number, someone increments it. The OUI table needs it because MA-M and MA-S
+    /// assignments are 28 and 36 bits long, so <see cref="Oui"/> is not enough to mask against.
+    /// </summary>
+    internal ulong Value => _value;
 
     public void CopyTo(Span<byte> destination)
     {

@@ -1,6 +1,6 @@
 # NetControl.DeviceSim
 
-A fake EtherNet/IP adapter, so both spikes — and later the real tool — can be developed and
+A fake EtherNet/IP adapter, so both spikes - and later the real tool - can be developed and
 regression-tested at a desk with no hardware.
 
 ```powershell
@@ -10,15 +10,15 @@ dotnet run --project src/NetControl.DeviceSim -- --list-quirks
 
 ## What it serves
 
-- **TCP 44818** — CIP requests: Identity (`0x01`), TCP/IP Interface (`0xF5`), Ethernet Link (`0xF6`).
+- **TCP 44818** - CIP requests: Identity (`0x01`), TCP/IP Interface (`0xF5`), Ethernet Link (`0xF6`).
   Get/Set on the attributes that matter, including the real refusal behaviours.
-- **UDP 44818** — `ListIdentity` discovery.
-- **UDP 67 (client side, optional)** — with `--bootp` or `--dhcp` it behaves like an adapter that
+- **UDP 44818** - `ListIdentity` discovery.
+- **UDP 67 (client side, optional)** - with `--bootp` or `--dhcp` it behaves like an adapter that
   just powered up: broadcasts requests until something answers, then adopts the address it was given.
 
 ## Three sessions worth running
 
-**1. CIP only — no special setup**
+**1. CIP only - no special setup**
 
 ```powershell
 # terminal 1
@@ -30,7 +30,7 @@ dotnet run --project spikes/Spike2.CipStaticIp -- read 127.0.0.1
 dotnet run --project spikes/Spike2.CipStaticIp -- set 127.0.0.1 --mask 255.255.0.0
 ```
 
-The `set` should walk attr 3 → attr 5 → readback and finish with **VERIFIED**.
+The `set` should walk attr 3 -> attr 5 -> readback and finish with **VERIFIED**.
 
 **Why `--ip 127.0.0.1` and not the default?** The simulator listens on every local address,
 but `--ip` is only the address it *reports* over CIP. On real hardware those are the same
@@ -56,7 +56,7 @@ dotnet run --project src/NetControl.DeviceSim -- --bootp --client-port 6868
 owns UDP/68, so a same-machine test needs a different client port. Against real hardware both stay
 at their defaults. Swap `--bootp` for `--dhcp` to exercise the DORA path instead.
 
-**3. Quirks — the reason this exists**
+**3. Quirks - the reason this exists**
 
 Terminal 1 runs the simulator, terminal 2 the matching `cip-spike` command.
 
@@ -98,11 +98,11 @@ dotnet run --project src/NetControl.DeviceSim -- --bind 192.168.1.52 --ip 192.16
 
 ## Caveats
 
-- **Not compiled yet** — written without an SDK available. Expect small build fixes.
+- **Not compiled yet** - written without an SDK available. Expect small build fixes.
 - Whether Windows loops a local `255.255.255.255` broadcast back to a local listener is worth
   confirming early. If session 2 shows nothing arriving, run the simulator in a VM or on a second
-  machine on the same subnet — that is the more faithful test anyway.
+  machine on the same subnet - that is the more faithful test anyway.
 - The simulator does not implement connected messaging (Forward_Open), only UCMM. Nothing in
-  Phases 1–3 needs it.
+  Phases 1-3 needs it.
 - Identity `Get_Attribute_All` omits the trailing state byte some devices include. Harmless here;
   worth remembering if a parser is ever written against the simulator alone rather than real captures.

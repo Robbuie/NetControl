@@ -4,7 +4,7 @@ using System.Runtime.Versioning;
 using NetControl.Spike.BootpListen;
 
 // ---------------------------------------------------------------------------
-// Spike 1 — BOOTP/DHCP listen + serve
+// Spike 1 - BOOTP/DHCP listen + serve
 //
 // Purpose: prove two things before any real code gets written.
 //   (a) We can receive BOOTP/DHCP requests and reliably identify which physical
@@ -62,7 +62,7 @@ if (opts.Nic is not null)
     if (bound.IPv4 is null)
         Log.Warn("That NIC has no IPv4 address. Give it a static address in the device's subnet first.");
     else if (bound.IsApipa)
-        Log.Warn("That NIC holds an APIPA (169.254.x.x) address — it never got a lease.");
+        Log.Warn("That NIC holds an APIPA (169.254.x.x) address - it never got a lease.");
     if (bound.Status != System.Net.NetworkInformation.OperationalStatus.Up)
         Log.Warn($"That NIC reports link status '{bound.Status}'. Check the cable.");
 }
@@ -84,10 +84,10 @@ if (mappings.Count > 0)
 {
     Console.WriteLine("Assignments loaded:");
     foreach (var (mac, a) in mappings)
-        Console.WriteLine($"      {mac} -> {a.Ip}  mask {a.Mask}  gw {a.Gateway?.ToString() ?? "—"}");
-    Log.Warn("SERVE MODE ACTIVE — this process will hand out addresses.");
+        Console.WriteLine($"      {mac} -> {a.Ip}  mask {a.Mask}  gw {a.Gateway?.ToString() ?? "-"}");
+    Log.Warn("SERVE MODE ACTIVE - this process will hand out addresses.");
 }
-else Log.Ok("Watch mode — logging only. Nothing will be sent.");
+else Log.Ok("Watch mode - logging only. Nothing will be sent.");
 
 Console.WriteLine();
 Console.WriteLine(new string('-', 104));
@@ -108,7 +108,7 @@ try
 }
 catch (SocketException ex)
 {
-    Log.Error($"Bind to 0.0.0.0:67 failed: {ex.SocketErrorCode} — {ex.Message}");
+    Log.Error($"Bind to 0.0.0.0:67 failed: {ex.SocketErrorCode} - {ex.Message}");
     if (ex.SocketErrorCode == SocketError.AccessDenied)
         Log.Error("AccessDenied means admin rights ARE required after all. Record that finding.");
     if (ex.SocketErrorCode == SocketError.AddressAlreadyInUse)
@@ -119,7 +119,7 @@ catch (SocketException ex)
 bool elevated = OperatingSystem.IsWindows() && IsElevated();
 Log.Ok($"Bound to 0.0.0.0:67   (process elevated: {elevated})");
 if (!elevated)
-    Log.Ok("Bind succeeded WITHOUT admin rights — Windows does not reserve low ports. Good news.");
+    Log.Ok("Bind succeeded WITHOUT admin rights - Windows does not reserve low ports. Good news.");
 
 using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
@@ -183,7 +183,7 @@ while (!cts.IsCancellationRequested)
     }
 
     var reply = BuildReply(pkt, assign, arrivalNic.IPv4);
-    if (reply is null) continue;   // RELEASE/DECLINE/INFORM — nothing to send
+    if (reply is null) continue;   // RELEASE/DECLINE/INFORM - nothing to send
 
     try
     {
@@ -199,7 +199,7 @@ while (!cts.IsCancellationRequested)
     }
     catch (SocketException ex)
     {
-        Log.Error($"              send failed: {ex.SocketErrorCode} — {ex.Message}");
+        Log.Error($"              send failed: {ex.SocketErrorCode} - {ex.Message}");
         if (opts.SendMode == SendMode.UnicastIf)
             Log.Error("              retry with --send-mode persocket");
     }
@@ -210,11 +210,11 @@ if (received == 0)
 {
     Log.Warn("Nothing arrived at all. Check, in order:");
     Console.WriteLine("""
-          1. Windows Firewall — inbound UDP/67 must be allowed for this executable.
+          1. Windows Firewall - inbound UDP/67 must be allowed for this executable.
           2. Link light on the NIC, and that --nic picked the adapter the cable is in.
           3. The device is actually in BOOTP/DHCP mode (many ship DHCP-enabled).
           4. No managed switch in between filtering DHCP (some do this by policy).
-          5. Power-cycle the device — most only request on boot, and only for a while.
+          5. Power-cycle the device - most only request on boot, and only for a while.
     """);
 }
 return 0;
@@ -266,7 +266,7 @@ static void SendOut(Socket sock, BootpPacket reply, NicInfo nic, SendMode mode, 
     if (mode == SendMode.UnicastIf)
     {
         // IP_UNICAST_IF (option 31). For IPv4 the value is the interface index
-        // in NETWORK byte order — an easy detail to get wrong, and it fails
+        // in NETWORK byte order - an easy detail to get wrong, and it fails
         // silently when you do.
         const SocketOptionName IP_UNICAST_IF = (SocketOptionName)31;
         int netOrderIndex = IPAddress.HostToNetworkOrder(nic.Index);

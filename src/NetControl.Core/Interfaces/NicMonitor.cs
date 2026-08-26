@@ -10,14 +10,14 @@ namespace NetControl.Core.Interfaces;
 ///
 /// * A short TTL cache, because <see cref="NetworkInterface.GetAllNetworkInterfaces"/> costs
 ///   milliseconds and the receive loop asks "which adapter is index 18?" for every datagram.
-///   A permanent cache would be wrong too — USB dongles and VPNs come and go mid-session.
+///   A permanent cache would be wrong too - USB dongles and VPNs come and go mid-session.
 /// * A subscription to <see cref="NetworkChange"/>, so the UI learns about an unplugged cable
 ///   without the user restarting anything. Windows fires these in bursts, so they are coalesced
 ///   and the event is only raised when the snapshot genuinely differs.
 ///
 /// <see cref="NicsChanged"/> is raised on a background thread. A UI must marshal it.
 /// </summary>
-public sealed class NicMonitor : IDisposable
+public sealed class NicMonitor : INicInventory, IDisposable
 {
     private static readonly TimeSpan DefaultTtl = TimeSpan.FromSeconds(5);
 
@@ -265,7 +265,7 @@ public sealed class NicMonitor : IDisposable
             StoreLocked(current);
         }
 
-        // NicInfo is a record, so this compares by value — Windows fires several notifications
+        // NicInfo is a record, so this compares by value - Windows fires several notifications
         // for one cable event and only the first of them actually changes anything.
         if (previous.SequenceEqual(current))
         {

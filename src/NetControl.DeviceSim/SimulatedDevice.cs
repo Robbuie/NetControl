@@ -25,7 +25,7 @@ public enum Quirk
     /// Reads before the reset still report the OLD values.</summary>
     RequiresResetToApply = 1 << 2,
 
-    /// <summary>Returns success for the write but silently discards it — the readback
+    /// <summary>Returns success for the write but silently discards it - the readback
     /// is the only thing that catches this, which is exactly why we always read back.</summary>
     LiesAboutWriteSuccess = 1 << 3,
 
@@ -102,7 +102,7 @@ public sealed class SimulatedDevice
     public string MacString => string.Join(':', MacAddress.Select(b => b.ToString("X2")));
 
     // -----------------------------------------------------------------------
-    /// <summary>Attribute 5 — Interface Configuration.</summary>
+    /// <summary>Attribute 5 - Interface Configuration.</summary>
     public byte[] SerializeInterfaceConfig()
     {
         var domain = CipCodec.CipString(DomainName);
@@ -145,7 +145,7 @@ public sealed class SimulatedDevice
         return CipStatus.Success;
     }
 
-    /// <summary>Attribute 3 write — Configuration Control.</summary>
+    /// <summary>Attribute 3 write - Configuration Control.</summary>
     public byte ApplyConfigControl(ReadOnlySpan<byte> data)
     {
         if (data.Length < 4) return CipStatus.NotEnoughData;
@@ -173,7 +173,7 @@ public sealed class SimulatedDevice
         NameServer2 = c.Ns2;
     }
 
-    /// <summary>Attribute 1 — interface status. Bit 0..3 = configuration status.</summary>
+    /// <summary>Attribute 1 - interface status. Bit 0..3 = configuration status.</summary>
     public uint InterfaceStatus => Method == ConfigMethod.Static ? 1u : 2u;
 
     /// <summary>Identity object, Get_Attribute_All.</summary>

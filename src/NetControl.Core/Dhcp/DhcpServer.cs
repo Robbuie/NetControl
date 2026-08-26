@@ -31,7 +31,7 @@ public sealed class DhcpServer
     /// </summary>
     private const int ReceiveBufferSize = 2048;
 
-    private readonly NicMonitor _nics;
+    private readonly INicInventory _nics;
     private readonly IAssignmentPolicy _policy;
     private readonly DhcpServerOptions _options;
     private readonly RetransmitFilter _retransmits;
@@ -39,7 +39,7 @@ public sealed class DhcpServer
     private int _running;
 
     public DhcpServer(
-        NicMonitor nics,
+        INicInventory nics,
         IAssignmentPolicy policy,
         DhcpServerOptions? options = null,
         TimeProvider? timeProvider = null)
@@ -74,7 +74,7 @@ public sealed class DhcpServer
 
     /// <summary>
     /// Binds and receives until cancelled. Throws <see cref="DhcpBindException"/> if it cannot
-    /// take the port, or if something else holds it in a way that makes delivery ambiguous —
+    /// take the port, or if something else holds it in a way that makes delivery ambiguous -
     /// starting anyway and appearing to work is the failure mode this whole product exists to
     /// remove.
     /// </summary>
@@ -123,7 +123,7 @@ public sealed class DhcpServer
             // SO_REUSEADDR is needed to coexist with the Hyper-V Default Switch, which binds
             // its own address on port 67 on a stock Windows machine and would otherwise block a
             // wildcard bind outright. The cost is that Windows also lets a second DHCP server
-            // sit alongside us with delivery decided arbitrarily — which is exactly why the port
+            // sit alongside us with delivery decided arbitrarily - which is exactly why the port
             // conflict check above runs first and refuses rather than shrugging.
             socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
             socket.EnableBroadcast = true;
@@ -156,7 +156,7 @@ public sealed class DhcpServer
             SocketError.AccessDenied => new DhcpBindException(
                 $"Windows refused the bind to 0.0.0.0:{port} (access denied). Low ports are not "
                     + "reserved on Windows, so this is normally a port exclusion range rather than a "
-                    + "permissions problem — Hyper-V and WSL both reserve blocks of UDP ports.",
+                    + "permissions problem - Hyper-V and WSL both reserve blocks of UDP ports.",
                 conflict,
                 ex)
             {
@@ -172,7 +172,7 @@ public sealed class DhcpServer
             },
 
             _ => new DhcpBindException(
-                $"Could not bind 0.0.0.0:{port}: {ex.SocketErrorCode} — {ex.Message}",
+                $"Could not bind 0.0.0.0:{port}: {ex.SocketErrorCode} - {ex.Message}",
                 conflict,
                 ex),
         };
@@ -205,7 +205,7 @@ public sealed class DhcpServer
                 if (IsUnrecoverable(ex.SocketErrorCode))
                 {
                     RaiseFault(
-                        $"The listening socket failed: {ex.SocketErrorCode} — {ex.Message}. The server has stopped.",
+                        $"The listening socket failed: {ex.SocketErrorCode} - {ex.Message}. The server has stopped.",
                         "Restart the server. If it recurs, check whether the adapter was removed or reset.",
                         ex,
                         isFatal: true);
@@ -347,7 +347,7 @@ public sealed class DhcpServer
         {
             RaiseFault(
                 $"Could not send the reply to {request.ClientMac} out [{nic.Index}] {nic.Name}: "
-                    + $"{ex.SocketErrorCode} — {ex.Message}",
+                    + $"{ex.SocketErrorCode} - {ex.Message}",
                 _options.SendMode == ReplySendMode.UnicastInterfaceOption
                     ? "Try again with SendMode = PerSocketBind, which binds the adapter's own address instead "
                         + "of steering the broadcast with IP_UNICAST_IF."
@@ -361,7 +361,7 @@ public sealed class DhcpServer
         if (_options.SendMode == ReplySendMode.UnicastInterfaceOption)
         {
             // IP_UNICAST_IF takes the interface index in NETWORK byte order for IPv4. Passing
-            // host order fails silently — the packet leaves by whichever adapter Windows would
+            // host order fails silently - the packet leaves by whichever adapter Windows would
             // have chosen anyway, which is the bug this option exists to prevent.
             socket.SetSocketOption(SocketOptionLevel.IP, IpUnicastIf, IPAddress.HostToNetworkOrder(nic.Index));
             return socket.SendTo(bytes, destination);
@@ -435,8 +435,8 @@ public sealed class DhcpServer
         }
 
         // A REQUEST names the address the client believes it is getting, either in option 50 or
-        // in ciaddr. If that disagrees with the plan — usually because the device was re-planned
-        // since it last booted — the correct answer is NAK, so it restarts and asks again. An ACK
+        // in ciaddr. If that disagrees with the plan - usually because the device was re-planned
+        // since it last booted - the correct answer is NAK, so it restarts and asks again. An ACK
         // carrying a different address leaves the device stuck in a loop nobody can explain.
         IPAddress? wanted = request.GetAddressOption(DhcpOptionCode.RequestedIpAddress);
         if (wanted is null && !request.ClientIp.Equals(IPAddress.Any))

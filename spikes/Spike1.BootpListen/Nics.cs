@@ -18,13 +18,13 @@ public sealed record NicInfo(
 
     public override string ToString()
     {
-        // Build the address as one string before padding it — padding the mask alone
+        // Build the address as one string before padding it - padding the mask alone
         // leaves the columns ragged, because the IP itself varies in width.
         string addr = IPv4 is null
             ? "no IPv4"
             : $"{IPv4}/{(Mask is null ? "?" : MaskToPrefix(Mask).ToString())}";
 
-        string speed = SpeedBps > 0 ? $"{SpeedBps / 1_000_000} Mb/s" : "—";
+        string speed = SpeedBps > 0 ? $"{SpeedBps / 1_000_000} Mb/s" : "-";
         string warn = IsApipa ? "  [APIPA]" : "";
         return $"[{Index,3}] {Name,-30} {addr,-19} {Status,-6} {speed,-10} {Description}{warn}";
     }
@@ -40,7 +40,7 @@ public sealed record NicInfo(
 public static class Nics
 {
     /// <summary>
-    /// Every IPv4-capable interface, keyed by the interface index the IP stack reports —
+    /// Every IPv4-capable interface, keyed by the interface index the IP stack reports -
     /// the same index that comes back in IPPacketInformation.Interface.
     /// </summary>
     public static List<NicInfo> All()

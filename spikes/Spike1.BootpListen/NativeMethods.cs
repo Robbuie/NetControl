@@ -72,7 +72,7 @@ public static class PortOwner
     /// Prints who owns the port and how much it matters.
     ///
     /// This lives here rather than in Program.cs because the platform analyser does not
-    /// flow an OperatingSystem.IsWindows() guard into a lambda — LINQ over these
+    /// flow an OperatingSystem.IsWindows() guard into a lambda - LINQ over these
     /// Windows-only members has to sit inside a method that is itself annotated.
     /// </summary>
     public static void Report(int port)
@@ -102,7 +102,7 @@ public static class PortOwner
         Console.WriteLine(wildcard
             ? """
                   A wildcard (0.0.0.0) bind competes for every broadcast request on the
-                  machine. Windows permits the second bind, so delivery becomes ambiguous —
+                  machine. Windows permits the second bind, so delivery becomes ambiguous -
                   this is the classic "tool runs, sees nothing" case. Close it first.
               """
             : """

@@ -8,16 +8,26 @@ namespace NetControl.DeviceSim;
 /// Serves the device over EtherNet/IP: TCP 44818 for CIP requests, UDP 44818 for
 /// ListIdentity discovery.
 ///
-/// All framing work is in non-async static helpers — Span&lt;T&gt; locals are illegal
+/// All framing work is in non-async static helpers - Span&lt;T&gt; locals are illegal
 /// inside async methods (CS4013).
 /// </summary>
-public sealed class EnipServer(SimulatedDevice device, Action<string> log, IPAddress? bindAddress = null)
+// A primary constructor's parameter list cannot see the type's own members, so `int port = Port`
+// does not compile (CS0103). Nullable, defaulted in the field below, keeps the 44818 in one place.
+public sealed class EnipServer(SimulatedDevice device, Action<string> log, IPAddress? bindAddress = null,
+                              int? port = null)
 {
     public const int Port = 44818;
 
     /// <summary>
+    /// The port actually served. Defaults to the standard 44818; overridden so a test can start a
+    /// simulator in-process on a spare loopback port and drive the real client against it, which is
+    /// what makes the commissioning sequence testable with no hardware and no ports to fight over.
+    /// </summary>
+    private readonly int _port = port ?? Port;
+
+    /// <summary>
     /// Defaults to all interfaces. Set it to one of the machine's addresses to run several
-    /// simulators side by side — TCP 44818 can only be bound once per address.
+    /// simulators side by side - TCP 44818 can only be bound once per address.
     /// </summary>
     private readonly IPAddress _bind = bindAddress ?? IPAddress.Any;
 
@@ -39,8 +49,8 @@ public sealed class EnipServer(SimulatedDevice device, Action<string> log, IPAdd
         var tcp = ServeTcpAsync(stop.Token);
         var udp = ServeUdpAsync(stop.Token);
 
-        // If either listener gives up — nearly always because the port is already
-        // taken — bring the other down too. A half-running simulator that answers
+        // If either listener gives up - nearly always because the port is already
+        // taken - bring the other down too. A half-running simulator that answers
         // discovery but refuses connections is worse than one that exits saying why.
         await Task.WhenAny(tcp, udp);
         await stop.CancelAsync();
@@ -50,23 +60,23 @@ public sealed class EnipServer(SimulatedDevice device, Action<string> log, IPAdd
     }
 
     // =======================================================================
-    // TCP — CIP requests
+    // TCP - CIP requests
     // =======================================================================
     private async Task ServeTcpAsync(CancellationToken ct)
     {
-        var listener = new TcpListener(_bind, Port);
+        var listener = new TcpListener(_bind, _port);
         try
         {
             listener.Start();
         }
         catch (SocketException ex)
         {
-            log($"ERROR: cannot listen on TCP {_bind}:{Port} — {ex.SocketErrorCode}");
+            log($"ERROR: cannot listen on TCP {_bind}:{_port} - {ex.SocketErrorCode}");
             if (ex.SocketErrorCode == SocketError.AddressAlreadyInUse)
                 log("       Another simulator instance or an EtherNet/IP tool already holds that port.");
             return;
         }
-        log($"CIP server listening on TCP {_bind}:{Port}");
+        log($"CIP server listening on TCP {_bind}:{_port}");
 
         try
         {
@@ -120,7 +130,7 @@ public sealed class EnipServer(SimulatedDevice device, Action<string> log, IPAdd
                             return;
 
                         case CmdListIdentity:
-                            await stream.WriteAsync(BuildFrame(CmdListIdentity, BuildIdentityItem(device), inSession, 0), ct);
+                            await stream.WriteAsync(BuildFrame(CmdListIdentity, BuildIdentityItem(device, _port), inSession, 0), ct);
                             break;
 
                         case CmdSendRRData:
@@ -140,13 +150,13 @@ public sealed class EnipServer(SimulatedDevice device, Action<string> log, IPAdd
 
                             if (resetAfter)
                             {
-                                log("  Identity reset — applying pending configuration, dropping connection");
+                                log("  Identity reset - applying pending configuration, dropping connection");
                                 device.ResetDevice();
                                 return;
                             }
                             if (dropAfter)
                             {
-                                log("  quirk DropConnectionOnWrite — closing mid-exchange");
+                                log("  quirk DropConnectionOnWrite - closing mid-exchange");
                                 return;
                             }
                             break;
@@ -236,7 +246,7 @@ public sealed class EnipServer(SimulatedDevice device, Action<string> log, IPAdd
 
                 if (status == CipStatus.Success)
                 {
-                    // Say plainly when a quirk means "success" did not change anything —
+                    // Say plainly when a quirk means "success" did not change anything -
                     // otherwise the simulator's own log reads like the write landed.
                     string note = path.Attribute != 5 ? ""
                         : device.Quirks.HasFlag(Quirk.LiesAboutWriteSuccess)
@@ -277,7 +287,7 @@ public sealed class EnipServer(SimulatedDevice device, Action<string> log, IPAdd
     }
 
     // =======================================================================
-    // UDP — ListIdentity discovery
+    // UDP - ListIdentity discovery
     // =======================================================================
     private async Task ServeUdpAsync(CancellationToken ct)
     {
@@ -285,13 +295,13 @@ public sealed class EnipServer(SimulatedDevice device, Action<string> log, IPAdd
         udp.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
         udp.EnableBroadcast = true;
 
-        try { udp.Bind(new IPEndPoint(_bind, Port)); }
+        try { udp.Bind(new IPEndPoint(_bind, _port)); }
         catch (SocketException ex)
         {
-            log($"WARNING: cannot bind UDP {Port} ({ex.SocketErrorCode}); discovery disabled.");
+            log($"WARNING: cannot bind UDP {_port} ({ex.SocketErrorCode}); discovery disabled.");
             return;
         }
-        log($"ListIdentity responder on UDP {_bind}:{Port}");
+        log($"ListIdentity responder on UDP {_bind}:{_port}");
 
         var buf = new byte[1024];
         while (!ct.IsCancellationRequested)
@@ -314,14 +324,14 @@ public sealed class EnipServer(SimulatedDevice device, Action<string> log, IPAdd
             if (device.ResponseDelayMs > 0) await Task.Delay(device.ResponseDelayMs, ct);
 
             log($"  ListIdentity from {r.RemoteEndPoint} -> replying as {device.Ip}");
-            var reply = BuildFrame(CmdListIdentity, BuildIdentityItem(device), 0, 0);
+            var reply = BuildFrame(CmdListIdentity, BuildIdentityItem(device, _port), 0, 0);
             try { await udp.SendToAsync(reply, r.RemoteEndPoint, ct); }
             catch (SocketException) { /* requester vanished */ }
         }
     }
 
     // =======================================================================
-    // Framing helpers — non-async on purpose (CS4013)
+    // Framing helpers - non-async on purpose (CS4013)
     // =======================================================================
     private static byte[] BuildFrame(ushort command, byte[] data, uint session, uint status)
     {
@@ -331,7 +341,7 @@ public sealed class EnipServer(SimulatedDevice device, Action<string> log, IPAdd
         BinaryPrimitives.WriteUInt16LittleEndian(h[2..], (ushort)data.Length);
         BinaryPrimitives.WriteUInt32LittleEndian(h[4..], session);
         BinaryPrimitives.WriteUInt32LittleEndian(h[8..], status);
-        // h[12..20] sender context — a real device echoes it; nothing here depends on that
+        // h[12..20] sender context - a real device echoes it; nothing here depends on that
         BinaryPrimitives.WriteUInt32LittleEndian(h[20..], 0);
         data.CopyTo(h[HeaderLength..]);
         return frame;
@@ -378,7 +388,13 @@ public sealed class EnipServer(SimulatedDevice device, Action<string> log, IPAdd
     /// The ListIdentity item (type 0x000C). Note the sockaddr_in inside it is BIG-endian,
     /// sitting in the middle of an otherwise little-endian structure.
     /// </summary>
-    private static byte[] BuildIdentityItem(SimulatedDevice d)
+    /// <param name="d">The device to describe.</param>
+    /// <param name="port">
+    /// The port this simulator is actually serving, which is what goes in the sockaddr_in. Passed
+    /// in because this stays a static helper - all the span work does, since Span&lt;T&gt; locals
+    /// are illegal in an async method.
+    /// </param>
+    private static byte[] BuildIdentityItem(SimulatedDevice d, int port)
     {
         var name = CipCodec.CipShortString(d.ProductName);
         int bodyLen = 2 + 16 + 2 + 2 + 2 + 2 + 2 + 4 + name.Length + 1;
@@ -392,9 +408,9 @@ public sealed class EnipServer(SimulatedDevice device, Action<string> log, IPAdd
         var b = s[6..];
         BinaryPrimitives.WriteUInt16LittleEndian(b, 1);                     // encapsulation version
 
-        // sockaddr_in — big-endian
+        // sockaddr_in - big-endian
         BinaryPrimitives.WriteInt16BigEndian(b[2..], 2);                    // AF_INET
-        BinaryPrimitives.WriteUInt16BigEndian(b[4..], Port);
+        BinaryPrimitives.WriteUInt16BigEndian(b[4..], (ushort)port);
         d.Ip.GetAddressBytes().CopyTo(b[6..]);                              // already network order
         // b[10..18] sin_zero stays zero
 

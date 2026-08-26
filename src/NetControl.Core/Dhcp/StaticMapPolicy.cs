@@ -29,7 +29,7 @@ public sealed class StaticMapPolicy : IAssignmentPolicy
 
     /// <summary>
     /// Refuse to serve an address that is not on the arrival adapter's subnet. Almost always a
-    /// plan error — the laptop would hand out an address it then cannot talk to — and the whole
+    /// plan error - the laptop would hand out an address it then cannot talk to - and the whole
     /// point of this tool is to catch that before somebody is standing in front of a panel.
     /// Turn it off only deliberately, for a relayed or multi-subnet setup.
     /// </summary>
@@ -70,7 +70,7 @@ public sealed class StaticMapPolicy : IAssignmentPolicy
         if (arrivalNic is null)
         {
             return AssignmentDecision.Ignore(
-                "the adapter this request arrived on is no longer present — refusing to guess which one to reply from");
+                "the adapter this request arrived on is no longer present - refusing to guess which one to reply from");
         }
 
         if (!arrivalNic.CanServe)
@@ -88,7 +88,7 @@ public sealed class StaticMapPolicy : IAssignmentPolicy
         {
             return AssignmentDecision.Ignore(
                 $"planned address {assignment.Ip} is not on the subnet of [{arrivalNic.Index}] {arrivalNic.Name} "
-                    + $"({arrivalNic.IPv4}/{arrivalNic.PrefixLength}) — the device would be unreachable from this "
+                    + $"({arrivalNic.IPv4}/{arrivalNic.PrefixLength}) - the device would be unreachable from this "
                     + "laptop after it takes the address");
         }
 

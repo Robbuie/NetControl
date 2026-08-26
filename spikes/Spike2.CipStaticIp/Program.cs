@@ -4,7 +4,7 @@ using System.Net.NetworkInformation;
 using NetControl.Spike.CipStaticIp;
 
 // ---------------------------------------------------------------------------
-// Spike 2 — set a static IP over EtherNet/IP, then prove it took.
+// Spike 2 - set a static IP over EtherNet/IP, then prove it took.
 //
 // This replaces the Rockwell tool's "Disable BOOTP/DHCP" button. The difference
 // that matters: we read the result back and re-discover the device before we
@@ -115,7 +115,7 @@ static async Task<int> Set(string[] args)
     {
         Err("Device reports that its interface configuration is NOT settable.");
         Console.WriteLine("""
-              Usually this means the address is fixed by hardware — rotary switches or
+              Usually this means the address is fixed by hardware - rotary switches or
               DIP switches on the module. Set them to 0/999 (module dependent) to hand
               control back to software, then retry.
         """);
@@ -185,13 +185,13 @@ static async Task<int> Set(string[] args)
 
             if (ipOk && maskOk && methodOk)
             {
-                Ok($"\n  VERIFIED — {newIp} is set statically and survives a re-read.");
+                Ok($"\n  VERIFIED - {newIp} is set statically and survives a re-read.");
                 if (!moved) Console.WriteLine("  Note: address unchanged; only the method moved to static.");
                 Console.WriteLine("  Power-cycle the device and re-run 'read' to confirm it persists.");
                 return 0;
             }
 
-            Err("\n  MISMATCH — the device did not take the configuration as written:");
+            Err("\n  MISMATCH - the device did not take the configuration as written:");
             if (!ipOk) Console.WriteLine($"        ip:     wanted {newIp}, got {actual.Ip}");
             if (!maskOk) Console.WriteLine($"        mask:   wanted {mask}, got {actual.Mask}");
             if (!methodOk) Console.WriteLine($"        method: wanted Static, got {method}");
@@ -203,7 +203,7 @@ static async Task<int> Set(string[] args)
         }
     }
 
-    Err($"\n  UNVERIFIED — the writes were accepted but {newIp} never came back.");
+    Err($"\n  UNVERIFIED - the writes were accepted but {newIp} never came back.");
     Console.WriteLine("""
           Most likely one of:
             - your PC has no route to the new subnet (add a second IP on that NIC)
@@ -221,7 +221,7 @@ static async Task DumpDevice(EnipSession session)
         new CipRequest { Service = CipService.GetAttributeAll, Class = CipClass.Identity, Instance = 1 });
     if (idn.IsSuccess) Console.WriteLine(FormatIdentity(idn.Data));
 
-    // Ethernet Link object — MAC address, so we can be certain which box this is
+    // Ethernet Link object - MAC address, so we can be certain which box this is
     var mac = await session.SendUnconnectedAsync(CipRequest.GetAttr(CipClass.EthernetLink, 1, 3));
     if (mac.IsSuccess && mac.Data.Length >= 6)
         Console.WriteLine($"    MAC          : {string.Join(':', mac.Data.Take(6).Select(b => b.ToString("X2")))}");
@@ -293,14 +293,14 @@ static uint ReadU32(byte[] data) =>
 
 static int Unknown(string cmd) { Err($"Unknown command '{cmd}'"); Usage(); return 1; }
 
-static string Truncate(string s, int n) => s.Length <= n ? s : s[..(n - 1)] + "…";
+static string Truncate(string s, int n) => s.Length <= n ? s : s[..(n - 1)] + "...";
 
 static void Ok(string m)   { var c = Console.ForegroundColor; Console.ForegroundColor = ConsoleColor.Green;  Console.WriteLine(m); Console.ForegroundColor = c; }
 static void Warn(string m) { var c = Console.ForegroundColor; Console.ForegroundColor = ConsoleColor.Yellow; Console.WriteLine(m); Console.ForegroundColor = c; }
 static void Err(string m)  { var c = Console.ForegroundColor; Console.ForegroundColor = ConsoleColor.Red;    Console.WriteLine(m); Console.ForegroundColor = c; }
 
 static void Usage() => Console.WriteLine("""
-    cip-spike — EtherNet/IP static IP configuration
+    cip-spike - EtherNet/IP static IP configuration
 
     USAGE
       cip-spike discover [localIp]
@@ -309,7 +309,7 @@ static void Usage() => Console.WriteLine("""
 
       cip-spike read <deviceIp>
           Dump Identity, MAC, and the whole TCP/IP Interface Object. Read-only.
-          Run this first — it tells you whether the device will accept a write.
+          Run this first - it tells you whether the device will accept a write.
 
       cip-spike set <deviceIp> [--ip <new>] [--mask <m>] [--gw <g>]
                                [--reset] [--no-verify]

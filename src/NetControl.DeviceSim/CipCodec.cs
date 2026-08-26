@@ -125,7 +125,7 @@ public static class CipCodec
 
     /// <summary>
     /// An IPv4 address as a CIP UDINT. CIP carries these little-endian, which is the
-    /// reverse of IPAddress.GetAddressBytes() — the single most common bug in this layer.
+    /// reverse of IPAddress.GetAddressBytes() - the single most common bug in this layer.
     /// </summary>
     public static void WriteCipIp(Span<byte> dst, IPAddress ip) =>
         BinaryPrimitives.WriteUInt32LittleEndian(dst, BinaryPrimitives.ReadUInt32BigEndian(ip.GetAddressBytes()));

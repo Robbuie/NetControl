@@ -13,7 +13,7 @@ namespace NetControl.Core.Interfaces;
 /// This is the single most common reason a BOOTP tool appears to start fine and then never
 /// receives anything: VMware, VirtualBox, WSL/Hyper-V, Docker or a stale copy of the tool is
 /// holding UDP/67. Windows permits the second bind when SO_REUSEADDR is in play, so the symptom
-/// is silence rather than an error — which is precisely why this has to be checked up front
+/// is silence rather than an error - which is precisely why this has to be checked up front
 /// instead of waited for.
 ///
 /// A stock Windows machine already has one: the Hyper-V Default Switch, bound to its own address.
@@ -143,7 +143,7 @@ public static class PortConflictDetector
                 PortConflictSeverity.Serious,
                 owners,
                 $"UDP/{port} is already bound on 0.0.0.0 by {names}. A wildcard bind competes for "
-                    + "broadcast requests on every adapter, and Windows delivers to only one socket — "
+                    + "broadcast requests on every adapter, and Windows delivers to only one socket - "
                     + "this is the usual cause of a BOOTP tool that runs but never sees a device.",
                 $"Stop {names} before starting the server, or accept that requests may go to it instead.");
         }

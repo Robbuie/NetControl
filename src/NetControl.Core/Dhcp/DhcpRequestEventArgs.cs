@@ -44,6 +44,6 @@ public sealed class DhcpRequestEventArgs(
 
     public MacAddress Mac => Packet.ClientMac;
 
-    /// <summary>"BOOTP REQUEST" or "DHCP Discover" — what the log line should call this.</summary>
+    /// <summary>"BOOTP REQUEST" or "DHCP Discover" - what the log line should call this.</summary>
     public string Kind => Packet.MessageType is { } type ? $"DHCP {type}" : "BOOTP REQUEST";
 }

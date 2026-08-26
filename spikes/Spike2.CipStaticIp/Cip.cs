@@ -99,13 +99,13 @@ public sealed class CipResponse
         {
             0x00 => "Success",
             0x02 => "Resource unavailable",
-            0x04 => "Path segment error — the device does not have that class/instance",
+            0x04 => "Path segment error - the device does not have that class/instance",
             0x05 => "Path destination unknown",
             0x08 => "Service not supported",
             0x09 => "Invalid attribute value",
             0x0B => "Already in requested mode/state",
-            0x0C => "Object state conflict — often means the device must be idle first",
-            0x0E => "Attribute not settable — the device is refusing the write",
+            0x0C => "Object state conflict - often means the device must be idle first",
+            0x0E => "Attribute not settable - the device is refusing the write",
             0x0F => "Privilege violation",
             0x10 => "Device state conflict",
             0x13 => "Not enough data",
@@ -121,7 +121,7 @@ public sealed class CipResponse
 }
 
 /// <summary>
-/// TCP/IP Interface Object, class 0xF5, attribute 5 — the Interface Configuration
+/// TCP/IP Interface Object, class 0xF5, attribute 5 - the Interface Configuration
 /// structure. All five addresses are UDINTs in LITTLE-endian byte order, which is
 /// reversed relative to IPAddress.GetAddressBytes().
 /// </summary>
@@ -185,10 +185,10 @@ public sealed record InterfaceConfig(
         (string.IsNullOrEmpty(DomainName) ? "" : $"  domain='{DomainName}'");
 }
 
-/// <summary>Class 0xF5, attribute 3 — Configuration Control.</summary>
+/// <summary>Class 0xF5, attribute 3 - Configuration Control.</summary>
 public enum ConfigMethod : uint { Static = 0, Bootp = 1, Dhcp = 2 }
 
-/// <summary>Class 0xF5, attribute 2 — Configuration Capability bit flags.</summary>
+/// <summary>Class 0xF5, attribute 2 - Configuration Capability bit flags.</summary>
 [Flags]
 public enum ConfigCapability : uint
 {

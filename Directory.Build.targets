@@ -6,8 +6,13 @@
 
   <!-- Shipping code holds the line on warnings. The Phase 0 spikes are meant to be
        scrappy, so they opt out with <IsSpike>true</IsSpike>, and test projects opt out too:
-       an xUnit analyser suggestion should not be able to break the build. -->
-  <PropertyGroup Condition="'$(IsSpike)' != 'true' AND '$(IsTestProject)' != 'true'">
+       an xUnit analyser suggestion should not be able to break the build.
+
+       Tools under tools/ opt out with <IsTool>true</IsTool> for the same reason as the spikes:
+       they are maintenance chores, not part of the product, and nothing in src/ references them.
+       A suggestion in the OUI packer's CSV reader must not be able to stop someone building the
+       thing they actually ship. Warnings still print. -->
+  <PropertyGroup Condition="'$(IsSpike)' != 'true' AND '$(IsTestProject)' != 'true' AND '$(IsTool)' != 'true'">
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 

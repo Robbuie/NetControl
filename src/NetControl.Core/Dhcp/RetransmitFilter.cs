@@ -4,8 +4,8 @@ namespace NetControl.Core.Dhcp;
 /// Recognises a repeat of a request already seen, keyed on (transaction id, client MAC) within a
 /// short window.
 ///
-/// Devices retransmit aggressively — a PowerFlex that has not been answered will ask several
-/// times a second — and without this the log becomes an unreadable wall of identical lines.
+/// Devices retransmit aggressively - a PowerFlex that has not been answered will ask several
+/// times a second - and without this the log becomes an unreadable wall of identical lines.
 ///
 /// Note what this does NOT do: it does not suppress the reply. A device retransmitting is a
 /// device that did not get the last answer, so it gets answered again. Only the log entry is
@@ -17,7 +17,7 @@ public sealed class RetransmitFilter(TimeSpan? window = null, TimeProvider? time
 
     /// <summary>
     /// Prune when the table gets this big. Commissioning sees tens of devices, not thousands, so
-    /// hitting this at all means something is retransmitting pathologically — the bound exists so
+    /// hitting this at all means something is retransmitting pathologically - the bound exists so
     /// that a broken device on the segment cannot grow the table without limit.
     /// </summary>
     private const int PruneThreshold = 512;

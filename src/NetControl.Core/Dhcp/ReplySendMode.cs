@@ -9,7 +9,7 @@ public enum ReplySendMode
 {
     /// <summary>
     /// IP_UNICAST_IF (option 31) on the listening socket. One socket, set per reply. Note the
-    /// value is the interface index in NETWORK byte order for IPv4 — get that wrong and it fails
+    /// value is the interface index in NETWORK byte order for IPv4 - get that wrong and it fails
     /// silently, which is the worst possible failure for this particular feature.
     /// </summary>
     UnicastInterfaceOption = 0,

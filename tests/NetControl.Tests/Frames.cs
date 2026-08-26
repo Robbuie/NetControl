@@ -3,7 +3,7 @@ namespace NetControl.Tests;
 /// <summary>
 /// Wire frames the codec tests run against.
 ///
-/// These are hand-built to match what a Rockwell EtherNet/IP adapter emits — the option set, the
+/// These are hand-built to match what a Rockwell EtherNet/IP adapter emits - the option set, the
 /// broadcast flag, the vendor class string. They are NOT captures from real hardware. Real
 /// captures are worth more than anything else in this test project, so when a panel is next on
 /// the bench, take a pcap and add the frames here: protocol bugs are the ones that cost hours on
@@ -31,7 +31,7 @@ internal static class Frames
         "3501013D07010000BC5E11013C1E526F636B77656C6C204175746F6D6174696F6E2C20313735362D454E32540C07454E" +
         "42542D413137070103060F1C3336FF";
 
-    /// <summary>DHCP REQUEST whose option 50 asks for 192.168.1.99 — not what the plan says.</summary>
+    /// <summary>DHCP REQUEST whose option 50 asks for 192.168.1.99 - not what the plan says.</summary>
     public const string DhcpRequestWrongIp =
         "01010600FC5D146500088000000000000000000000000000000000000000BC5E11010000000000000000000000000000" +
         "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000" +

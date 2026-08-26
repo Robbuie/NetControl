@@ -1,7 +1,7 @@
 namespace NetControl.Core.Interfaces;
 
 /// <summary>
-/// Raised when the adapter inventory actually changed — not merely when Windows said something
+/// Raised when the adapter inventory actually changed - not merely when Windows said something
 /// happened. The distinction matters: Windows emits several address-change notifications for one
 /// cable event, and an interface bar that flickers is an interface bar nobody trusts.
 /// </summary>
@@ -16,7 +16,7 @@ public sealed class NicsChangedEventArgs(IReadOnlyList<NicInfo> current, IReadOn
     public IReadOnlyList<NicInfo> Added { get; } =
         current.Where(c => previous.All(p => p.Index != c.Index)).ToList();
 
-    /// <summary>Adapters that have gone away — an unplugged dongle, a VPN going down.</summary>
+    /// <summary>Adapters that have gone away - an unplugged dongle, a VPN going down.</summary>
     public IReadOnlyList<NicInfo> Removed { get; } =
         previous.Where(p => current.All(c => c.Index != p.Index)).ToList();
 

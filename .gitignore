@@ -12,7 +12,15 @@ TestResults/
 *.db-wal
 *.log
 
-# Commissioning plans often contain customer site data — keep real ones out of git.
+# Commissioning plans often contain customer site data - keep real ones out of git.
 # Sample/redacted files should be named *.sample.csv and committed deliberately.
 *.csv
 !*.sample.csv
+
+# The curated OUI seed is public registry data, not site data, and a clone without it cannot
+# build a vendor table from scratch. The IEEE downloads it is packed from stay untracked -
+# `update` puts them in a temp folder for exactly that reason.
+!tools/NetControl.OuiPacker/seed/*.csv
+
+# Scratch tarball used to sync the tree to a build machine. Never committed.
+/_trash/_sync.tar.gz

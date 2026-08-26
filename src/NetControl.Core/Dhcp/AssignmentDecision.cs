@@ -1,7 +1,7 @@
 namespace NetControl.Core.Dhcp;
 
 /// <summary>
-/// What the policy decided about one request, and why. The reason is not decoration — it is what
+/// What the policy decided about one request, and why. The reason is not decoration - it is what
 /// the request log shows next to an unmatched MAC, and it is the difference between "nothing
 /// happened" and "00:1D:9C:.. is not in the plan".
 /// </summary>

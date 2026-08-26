@@ -9,7 +9,7 @@ namespace NetControl.Core.Dhcp;
 /// 99.130.83.99, then TLV options.
 ///
 /// Everything on this wire is BIG-endian, which is worth stating loudly because the CIP side of
-/// this product is little-endian — including the IP addresses carried inside CIP attributes.
+/// this product is little-endian - including the IP addresses carried inside CIP attributes.
 /// Mixing the two up is the most expensive protocol mistake available in this codebase, so this
 /// type never uses <see cref="BitConverter"/>; every multi-byte read and write names its order
 /// at the call site via <see cref="BinaryPrimitives"/>.
@@ -27,7 +27,7 @@ public sealed class BootpPacket
     /// RFC 1542 section 2.1: a BOOTP message is at least 300 octets. Some older adapters drop
     /// anything shorter, which presents as a device that requests forever and never takes the
     /// address. If a device is ever found that needs more, raise this per-reply rather than
-    /// changing it globally — RFC 2131 clients must accept an options field of 312 octets, so
+    /// changing it globally - RFC 2131 clients must accept an options field of 312 octets, so
     /// 548 is the other value worth trying.
     /// </summary>
     public const int MinimumMessageLength = 300;
@@ -94,8 +94,8 @@ public sealed class BootpPacket
     public string? VendorClass => GetAsciiOption(DhcpOptionCode.VendorClassIdentifier);
 
     /// <summary>
-    /// RFC 2132 option 52. We do not currently read options out of the file and sname fields —
-    /// no device met so far uses it — but we record that it happened so a device that does can
+    /// RFC 2132 option 52. We do not currently read options out of the file and sname fields -
+    /// no device met so far uses it - but we record that it happened so a device that does can
     /// be recognised from the log instead of appearing as an inexplicable parse failure.
     /// </summary>
     public bool HasOptionOverload => Options.ContainsKey(DhcpOptionCode.OptionOverload);
@@ -234,7 +234,7 @@ public sealed class BootpPacket
         Options[code] = value.GetAddressBytes();
     }
 
-    /// <summary>Writes a 32-bit option in network byte order — lease time, renewal, and friends.</summary>
+    /// <summary>Writes a 32-bit option in network byte order - lease time, renewal, and friends.</summary>
     public void SetOptionUInt32(byte code, uint value)
     {
         var bytes = new byte[4];

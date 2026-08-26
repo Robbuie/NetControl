@@ -1,0 +1,16 @@
+using NetControl.Core;
+using NetControl.Core.Dhcp;
+
+namespace NetControl.App.Serving;
+
+/// <summary>
+/// <see cref="IPlanIndex"/> over the policy the server is actually using, so the log and the
+/// server can never disagree about what is planned. Reading the same object the receive loop
+/// reads is deliberate: a second copy of the plan is a second thing to keep in step.
+/// </summary>
+public sealed class PolicyPlanIndex(StaticMapPolicy policy) : IPlanIndex
+{
+    private readonly StaticMapPolicy _policy = policy ?? throw new ArgumentNullException(nameof(policy));
+
+    public bool Contains(MacAddress mac) => _policy.TryGet(mac, out _);
+}

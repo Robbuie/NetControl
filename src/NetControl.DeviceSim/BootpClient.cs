@@ -5,12 +5,12 @@ using System.Net.Sockets;
 namespace NetControl.DeviceSim;
 
 /// <summary>
-/// The client half of BOOTP/DHCP — what a real adapter does on power-up. Gives
+/// The client half of BOOTP/DHCP - what a real adapter does on power-up. Gives
 /// Spike 1 (and later the real server) something to answer without hardware.
 ///
 /// Windows caveat: the DHCP Client service normally holds UDP/68, so binding it here
 /// often fails. When it does we fall back to an ephemeral source port and simply do
-/// not see the reply — the request still goes out, which is enough to exercise the
+/// not see the reply - the request still goes out, which is enough to exercise the
 /// receive path. Use --client-port to pick a free port and see the full round trip.
 /// </summary>
 public sealed class BootpClient(SimulatedDevice device, Action<string> log)
@@ -82,7 +82,7 @@ public sealed class BootpClient(SimulatedDevice device, Action<string> log)
                     device.Ip = offered;
                     device.Mask = mask;
                     if (gw is not null) device.Gateway = gw;
-                    log($"device is now reachable at {offered} — try:  cip-spike read {offered}");
+                    log($"device is now reachable at {offered} - try:  cip-spike read {offered}");
                     return;
                 }
             }
@@ -90,7 +90,7 @@ public sealed class BootpClient(SimulatedDevice device, Action<string> log)
     }
 
     // =======================================================================
-    // Framing — non-async static helpers (Span<T> locals are illegal in async, CS4013)
+    // Framing - non-async static helpers (Span<T> locals are illegal in async, CS4013)
     // =======================================================================
     private static byte[] BuildBootpRequest(byte[] mac, uint xid)
     {

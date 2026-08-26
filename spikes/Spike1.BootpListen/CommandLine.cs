@@ -84,7 +84,7 @@ public static class CommandLine
     }
 
     public static void PrintUsage() => Console.WriteLine("""
-        bootp-spike — BOOTP/DHCP listener and minimal server
+        bootp-spike - BOOTP/DHCP listener and minimal server
 
         USAGE
           bootp-spike [--list] [--nic <name|index>] [--serve MAC=IP ...]
