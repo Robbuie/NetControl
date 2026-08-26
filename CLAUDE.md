@@ -176,6 +176,13 @@ Hard-won, easy to get wrong, expensive to debug:
 - **`TreatWarningsAsErrors` is scoped in `Directory.Build.targets`** to projects that set none of
   `IsSpike`, `IsTestProject` or `IsTool`. An xUnit analyser suggestion should not be able to break
   a build, and neither should one in a maintenance tool nothing in `src/` references.
+- **An XML comment may not contain `--`, and MSBuild reports it as something else entirely.**
+  A comment in `Directory.Build.props` held the example command `git rev-parse --short HEAD`. That
+  file carries `TargetFramework` for the whole repository, so a props file that will not parse
+  leaves every project with an empty one - and the error is NuGet's
+  `Invalid framework identifier ''` during restore, which says nothing about XML, nothing about
+  comments and nothing about which file. Validating the `.csproj`/`.props`/`.targets` files is
+  worth doing whenever they are edited by anything other than an IDE.
 - **A cref to a type you have no `using` for is a phantom dependency.** Doc comments do not count
   as usage for unused-using analysis, so either fully qualify the cref or accept the warning.
   `NicInfo` fully qualifies `System.Net.Sockets.IPPacketInformation` for this reason.
@@ -410,8 +417,9 @@ the stray-quote note below.
   corrected file corrects the plan rather than doubling it. Both write an `EventCategory.App` row,
   including refusals.
 
-**Handing a device back to BOOTP/DHCP is wired up.** Written in a session with no .NET SDK - so it
-is compiled but not run, and the note under "Pick up here" applies to all of it.
+**Handing a device back to BOOTP/DHCP is wired up.** Written in a session with no .NET SDK, then
+compiled and run on a machine that had one: 454 tests green, and `src/` builds warning-free under
+warnings-as-errors.
 
 - Core already did the work: `StaticIpRequest.Method`, the commissioner's skip of attribute 5, the
   `VerifyAddress` switch and the wording in `Compare` were all written for this and never called.
@@ -434,7 +442,7 @@ is compiled but not run, and the note under "Pick up here" applies to all of it.
   whose plan row has been half edited since.
 
 **The scan is compared against the plan.** `PLAN-NEXT.md`'s last open question, closed. Also
-written without an SDK.
+written without an SDK, and green on the same run.
 
 - `NetControl.Core/Discovery/PlanConformance` + `PlanConformanceReport` + `PlanFinding` +
   `PlanFindingKind`. Pure comparison: it sends nothing, reads nothing, changes nothing.
@@ -487,10 +495,14 @@ written without an SDK.
 
 ### Pick up here
 
-**Everything above the "Pick up here" line that was added most recently was written without an SDK
-to build against.** Compile and run the tests first; that is the check, not a formality - it is how
-the one wrong test in the discovery work was found. After that the same rule as before applies:
-what is left is looking at it and putting it in front of hardware.
+**Everything in `src/` compiles and all 454 tests pass.** The hand-back, the plan-versus-scan
+comparison and the diagnostic log were all written in a session with no SDK and needed no fixing
+once one was available - the only thing that had to be corrected was an XML comment in
+`Directory.Build.props`, which is in the C# specifics section because of how far its error message
+lands from its cause.
+
+There is no outstanding code work that can be done at a desk. What is left is looking at it and
+putting it in front of hardware.
 
 **Four things have never been on screen.** A XAML binding that does not resolve costs nothing at
 build time and shows an empty column at the bench:
@@ -636,6 +648,41 @@ Proven on this machine, by tests that run every build:
 - a plan for a subnet this machine is not on imports when no adapter was passed, and is refused
   with the reason - including what the readback would have reported - when one was
 - an import and a refusal each write exactly one `EventCategory.App` row, graded Info and Warn
+
+- a hand-back writes Configuration Control and nothing else: the device comes back reporting BOOTP
+  while holding exactly the address and mask it held before, and `ToInterfaceConfig` refuses to
+  produce a structure for a request that is not Static, so a change that stopped skipping attribute
+  5 fails there rather than on a panel
+- `StaticIpRequest.HandBack` refuses `ConfigMethod.Static`, so the two opposite operations cannot be
+  reached through one door by changing one enum member
+- from the grid: a verified hand-back takes the row back off `Verified`, and the event is recorded as
+  a warning naming what happens at the next power cycle
+- a device can be handed back without a mask - nothing is written, so there is nothing for a missing
+  mask to make wrong - while Set static still refuses the same row
+
+- a planned address that something else is answering on is reported as a conflict naming both ends,
+  and a planned device that did not answer at all is reported as nothing, because absence is not
+  evidence
+- two devices on one planned address stay a contested address and never become a confirmation, even
+  when one of them is the device that was planned there
+- a planned address answered by something with no resolvable MAC is neither confirmed nor a conflict
+- both facts about one row are reported: the device answering from somewhere else, and the stranger
+  sitting where it was meant to be
+- a device is spoken about exactly once - the occupant of a planned address is not also filed as an
+  unplanned stranger
+- findings sort worst first and then by address as a number, so .2 comes before .100
+
+- the diagnostic log writes timestamped lines, keeps one event on one line, carries the whole
+  exception under it, rolls on a new day and on size, prunes to its retention count, and appends to
+  the day's file rather than truncating it
+- **a folder it cannot write into disables the log and records why, and every later call is a no-op
+  rather than an exception** - it runs inside the crash handlers, where throwing would replace a
+  reportable fault with an unreportable one
+- the update check contacts nothing at all when no manifest URL is configured, asserted by the
+  handler counting its calls; it says nothing when already current, and does say so when a check was
+  asked for and failed
+- versions compare as numbers, so 0.10.0 is newer than 0.9.0, and a commit suffix is which build
+  rather than which version
 
 Proven once, by hand, on a real machine - not by a test, so treat these as "seen working" rather
 than "cannot regress":
