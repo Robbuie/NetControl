@@ -6,6 +6,7 @@ obj/
 *.suo
 *.userprefs
 artifacts/
+dist_installer/
 TestResults/
 *.db
 *.db-shm

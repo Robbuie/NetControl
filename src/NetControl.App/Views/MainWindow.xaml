@@ -10,7 +10,10 @@
         Height="720" Width="1180"
         MinHeight="480" MinWidth="900"
         WindowStartupLocation="CenterScreen"
-        Background="White">
+        Background="{DynamicResource bg-0}"
+        FontFamily="{DynamicResource font}"
+        FontSize="{DynamicResource ui-font}"
+        Foreground="{DynamicResource txt-0}">
 
   <DockPanel>
 
@@ -42,6 +45,26 @@
                   IsChecked="{Binding UsePerSocketBind}"
                   ToolTip="Off uses IP_UNICAST_IF on the listening socket. That path has only ever been proved against a listener on this machine, so the bind is the default until real hardware says otherwise." />
       </MenuItem>
+      <MenuItem Header="_View">
+        <!-- Theme, accent and density. The same three axes as the DWG viewer and the Redline PDF
+             app, and the same design system underneath - so a person who set one of those up the
+             way they like it will find this one already familiar. -->
+        <MenuItem Header="_Appearance..." Click="OnAppearance"
+                  ToolTip="Theme, accent colour and how much room the chrome takes. Applied as you choose, saved when you press OK." />
+      </MenuItem>
+      <MenuItem Header="_Help">
+        <!-- The startup check is silent unless there is a newer build. This one always answers,
+             including "could not reach it", because somebody pressing it is waiting to be told. -->
+        <MenuItem Header="Check for _updates" Click="OnCheckForUpdates"
+                  ToolTip="Asks the repository whether a newer build has been published, and offers to download and install it. Refused while the listener is running or a device is being commissioned." />
+        <MenuItem Header="_Releases page" Click="OnOpenReleases"
+                  ToolTip="Opens the download page in a browser. Needs a machine with a route out - most plant laptops do not have one." />
+        <Separator />
+        <MenuItem Header="Open the _diagnostic log folder" Click="OnOpenLogFolder"
+                  ToolTip="Why the application misbehaved. Not the commissioning record - that is the event log inside the project file, and nothing can edit it." />
+        <Separator />
+        <MenuItem Header="_About NetControl" Click="OnAbout" />
+      </MenuItem>
     </Menu>
 
     <!-- ============================ Interface bar ============================
@@ -49,8 +72,8 @@
          common causes and three of them are measurable before a packet lands; this bar rules
          those three out so nobody has to guess which one they are looking at. -->
     <Border DockPanel.Dock="Top"
-            Background="{StaticResource PanelBrush}"
-            BorderBrush="{StaticResource LineBrush}"
+            Background="{DynamicResource chrome-fill}"
+            BorderBrush="{DynamicResource line}"
             BorderThickness="0,0,0,1"
             Padding="10,8">
       <StackPanel>
@@ -90,17 +113,15 @@
                   <StackPanel>
                     <TextBlock Text="{Binding DisplayName}">
                       <TextBlock.Style>
-                        <Style TargetType="TextBlock">
-                          <Setter Property="FontFamily" Value="Segoe UI" />
-                          <Setter Property="FontSize" Value="12" />
+                        <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
                           <Style.Triggers>
                             <!-- Dimmed, never hidden. The heuristic that calls an adapter
                                  virtual is only allowed to sort and shade, never to decide. -->
                             <DataTrigger Binding="{Binding IsLikelyVirtual}" Value="True">
-                              <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+                              <Setter Property="Foreground" Value="{DynamicResource txt-2}" />
                             </DataTrigger>
                             <DataTrigger Binding="{Binding IsPresent}" Value="False">
-                              <Setter Property="Foreground" Value="{StaticResource BlockedBrush}" />
+                              <Setter Property="Foreground" Value="{DynamicResource bad}" />
                             </DataTrigger>
                           </Style.Triggers>
                         </Style>
@@ -151,7 +172,7 @@
                 <TextBlock VerticalAlignment="Center" Margin="6,0,0,0"
                            MaxWidth="420"
                            TextTrimming="CharacterEllipsis"
-                           Foreground="{StaticResource MutedBrush}"
+                           Foreground="{DynamicResource txt-2}"
                            Text="{Binding Summary}" />
               </StackPanel>
             </DataTemplate>
@@ -161,25 +182,25 @@
         <!-- "Your device is asking, but on an adapter you did not select" - the most useful
              sentence this tool can produce, so it gets its own line rather than a log row. -->
         <Border Margin="22,8,0,0" Padding="8,5"
-                Background="#FFF7E6"
-                BorderBrush="{StaticResource WarningBrush}"
+                Background="{DynamicResource notice-warn}"
+                BorderBrush="{DynamicResource warn}"
                 BorderThickness="1"
                 Visibility="{Binding InterfaceBar.MisdirectedTraffic, Converter={StaticResource NotNullToVisible}}">
           <TextBlock TextWrapping="Wrap"
-                     Foreground="{StaticResource WarningBrush}"
+                     Foreground="{DynamicResource warn}"
                      Text="{Binding InterfaceBar.MisdirectedTraffic}" />
         </Border>
 
         <Border Margin="22,8,0,0" Padding="8,5"
-                Background="#FDECEF"
-                BorderBrush="{StaticResource BlockedBrush}"
+                Background="{DynamicResource notice-bad}"
+                BorderBrush="{DynamicResource bad}"
                 BorderThickness="1"
                 Visibility="{Binding ErrorMessage, Converter={StaticResource NotNullToVisible}}">
           <StackPanel>
-            <TextBlock TextWrapping="Wrap" Foreground="{StaticResource BlockedBrush}"
+            <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource bad}"
                        Text="{Binding ErrorMessage}" />
             <TextBlock TextWrapping="Wrap" Margin="0,4,0,0"
-                       Foreground="{StaticResource BlockedBrush}"
+                       Foreground="{DynamicResource bad}"
                        Visibility="{Binding ErrorRemediation, Converter={StaticResource NotNullToVisible}}"
                        Text="{Binding ErrorRemediation}" />
           </StackPanel>
@@ -190,8 +211,8 @@
 
     <!-- ============================== Status bar ============================== -->
     <Border DockPanel.Dock="Bottom"
-            Background="{StaticResource PanelBrush}"
-            BorderBrush="{StaticResource LineBrush}"
+            Background="{DynamicResource bg-1}"
+            BorderBrush="{DynamicResource line}"
             BorderThickness="0,1,0,0"
             Padding="10,5">
       <Grid>
@@ -207,7 +228,7 @@
           <!-- Not a dirty flag. Edits are already in the database; what is missing is a file to
                keep it in, and saying that plainly is cheaper than a Save button people look for. -->
           <TextBlock Style="{StaticResource Muted}"
-                     Foreground="{StaticResource WarningBrush}"
+                     Foreground="{DynamicResource warn}"
                      Margin="6,0,0,0"
                      Text="(not saved to a file yet)"
                      ToolTip="Nothing is lost while the app is open, but nothing survives closing it either. File, Save as."
@@ -235,15 +256,19 @@
                      Text="{Binding VersionText, Mode=OneTime}"
                      ToolTip="The build that is running. It is written into every project file this session opens." />
 
-          <!-- Absent unless there is something to say. Both ordinary states - no update manifest
-               configured, and already on the current build - are silence, because a status bar with
-               something in it at all times is a status bar nobody reads. -->
+          <!-- Absent unless there is something to say. Every ordinary state - the check turned
+               off, already on the current build, and a check that could not reach anything - is
+               silence at startup, because a status bar with something in it at all times is a
+               status bar nobody reads. What is left is worth clicking: this line only appears when
+               a newer build exists, and clicking it is how you install it. -->
           <TextBlock Style="{StaticResource Muted}"
-                     Foreground="{StaticResource WarningBrush}"
+                     Foreground="{DynamicResource warn}"
                      Margin="10,0,0,0"
                      TextTrimming="CharacterEllipsis"
+                     Cursor="Hand"
+                     MouseLeftButtonUp="OnUpdateStatusClicked"
                      Text="{Binding UpdateStatus}"
-                     ToolTip="{Binding UpdateStatus}"
+                     ToolTip="Click to download and install it. Same as Help &gt; Check for updates."
                      Visibility="{Binding UpdateStatus, Converter={StaticResource NotNullToVisible}}" />
         </StackPanel>
 
@@ -256,7 +281,7 @@
             <Style TargetType="TextBlock" BasedOn="{StaticResource Muted}">
               <Style.Triggers>
                 <DataTrigger Binding="{Binding InterfaceBar.OuiIsStale}" Value="True">
-                  <Setter Property="Foreground" Value="{StaticResource WarningBrush}" />
+                  <Setter Property="Foreground" Value="{DynamicResource warn}" />
                 </DataTrigger>
               </Style.Triggers>
             </Style>
@@ -264,7 +289,7 @@
         </TextBlock>
 
         <TextBlock Grid.Column="2"
-                   Foreground="{StaticResource BlockedBrush}"
+                   Foreground="{DynamicResource bad}"
                    FontWeight="SemiBold"
                    Visibility="{Binding RecordingIsIncomplete, Converter={StaticResource BoolToVisible}}"
                    Text="Event log incomplete - a row failed to write"
@@ -302,7 +327,7 @@
           <!-- The half of the job BOOTP does not do. An address served over BOOTP lasts until the
                next power cycle, because the device is still a BOOTP client; this writes it in and
                turns the protocol off, then reads it back off the device before saying so. -->
-          <Separator Margin="10,0" />
+          <Border Style="{StaticResource ToolbarSeparator}" Height="20" />
 
           <Button Content="Set static"
                   MinWidth="110"
@@ -322,7 +347,8 @@
                it is chosen by name, from a menu, behind a confirmation, rather than arrived at by
                leaving a dropdown where somebody else left it. IsEnabled binds to the same rule the
                commands use; a second copy of it written here is a copy that drifts. -->
-          <Menu Background="Transparent" VerticalAlignment="Center" Margin="10,0,0,0" Padding="0">
+          <Menu Background="Transparent" BorderThickness="0" VerticalAlignment="Center"
+                Margin="10,0,0,0" Padding="0">
             <MenuItem Header="Enable BOOTP/DHCP"
                       ToolTip="Writes Configuration Control and nothing else. The addresses the device is holding are left alone, but it stops owning them and asks for one again at its next power cycle.">
               <MenuItem Header="Enable _BOOTP on the selected device"
@@ -337,21 +363,21 @@
           <TextBlock Style="{StaticResource Muted}"
                      Margin="12,0,0,0"
                      VerticalAlignment="Center"
-                     Foreground="{StaticResource WarningBrush}"
+                     Foreground="{DynamicResource warn}"
                      Text="Writing to device..."
                      Visibility="{Binding Plan.IsCommissioning, Converter={StaticResource BoolToVisible}}" />
         </StackPanel>
 
         <Border DockPanel.Dock="Bottom" Margin="0,6,0,8" Padding="8,5"
-                Background="#FDECEF"
-                BorderBrush="{StaticResource BlockedBrush}"
+                Background="{DynamicResource notice-bad}"
+                BorderBrush="{DynamicResource bad}"
                 BorderThickness="1"
                 Visibility="{Binding Plan.ErrorMessage, Converter={StaticResource NotNullToVisible}}">
           <StackPanel>
-            <TextBlock TextWrapping="Wrap" Foreground="{StaticResource BlockedBrush}"
+            <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource bad}"
                        Text="{Binding Plan.ErrorMessage}" />
             <TextBlock TextWrapping="Wrap" Margin="0,4,0,0"
-                       Foreground="{StaticResource BlockedBrush}"
+                       Foreground="{DynamicResource bad}"
                        Visibility="{Binding Plan.ErrorRemediation, Converter={StaticResource NotNullToVisible}}"
                        Text="{Binding Plan.ErrorRemediation}" />
           </StackPanel>
@@ -366,8 +392,6 @@
                   SelectionUnit="FullRow"
                   HeadersVisibility="Column"
                   GridLinesVisibility="Horizontal"
-                  HorizontalGridLinesBrush="{StaticResource LineBrush}"
-                  BorderBrush="{StaticResource LineBrush}"
                   RowHeaderWidth="0"
                   VirtualizingPanel.IsVirtualizing="True"
                   VirtualizingPanel.VirtualizationMode="Recycling">
@@ -377,15 +401,18 @@
                sentence in it at all. Red means it was not stored; amber means it was stored and
                will not be served, which is a normal state for a plan being typed. -->
           <DataGrid.RowStyle>
-            <Style TargetType="DataGridRow">
+            <!-- BasedOn, and it is load-bearing: an explicit RowStyle replaces the implicit one
+                 rather than adding to it, so without this the grid keeps its triggers and loses
+                 its template - which is to say it stops following the theme entirely. -->
+            <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
               <Setter Property="ToolTip" Value="{Binding StatusTooltip}" />
               <Style.Triggers>
                 <DataTrigger Binding="{Binding IsServable}" Value="False">
-                  <Setter Property="Background" Value="{StaticResource WarningRowBrush}" />
+                  <Setter Property="Background" Value="{DynamicResource row-warn}" />
                 </DataTrigger>
                 <!-- Last trigger wins, so this deliberately follows the amber one. -->
                 <DataTrigger Binding="{Binding HasProblem}" Value="True">
-                  <Setter Property="Background" Value="{StaticResource FaultBrush}" />
+                  <Setter Property="Background" Value="{DynamicResource row-bad}" />
                 </DataTrigger>
               </Style.Triggers>
             </Style>
@@ -398,13 +425,13 @@
                   <Ellipse Width="9" Height="9" HorizontalAlignment="Center" VerticalAlignment="Center">
                     <Ellipse.Style>
                       <Style TargetType="Ellipse">
-                        <Setter Property="Fill" Value="{StaticResource ReadyBrush}" />
+                        <Setter Property="Fill" Value="{DynamicResource good}" />
                         <Style.Triggers>
                           <DataTrigger Binding="{Binding IsServable}" Value="False">
-                            <Setter Property="Fill" Value="{StaticResource WarningBrush}" />
+                            <Setter Property="Fill" Value="{DynamicResource warn}" />
                           </DataTrigger>
                           <DataTrigger Binding="{Binding HasProblem}" Value="True">
-                            <Setter Property="Fill" Value="{StaticResource BlockedBrush}" />
+                            <Setter Property="Fill" Value="{DynamicResource bad}" />
                           </DataTrigger>
                         </Style.Triggers>
                       </Style>
@@ -439,10 +466,9 @@
       </DockPanel>
 
       <GridSplitter Grid.Row="1"
-                    Height="5"
+                    Height="7"
                     HorizontalAlignment="Stretch"
                     VerticalAlignment="Center"
-                    Background="{StaticResource LineBrush}"
                     ShowsPreview="True" />
 
       <!-- ============================= Live request log =============================
@@ -451,7 +477,7 @@
       <!-- The two halves of discovery, kept apart on purpose. A device in the live log asked for
            an address; a device in the scan results already has one and did not ask for anything.
            Both feed the same "add to plan" action, and a list that conflated them would mislead. -->
-      <TabControl Grid.Row="2" Margin="10,6,10,8" BorderBrush="{StaticResource LineBrush}">
+      <TabControl Grid.Row="2" Margin="10,6,10,8">
 
         <!-- ============================ Live request log ============================
              Every request as it lands, with the adapter it arrived on, the vendor behind the MAC,
@@ -468,7 +494,6 @@
 
             <ListView ItemsSource="{Binding Log.Entries}"
                       Margin="10,0,10,8"
-                      BorderBrush="{StaticResource LineBrush}"
                       ScrollViewer.HorizontalScrollBarVisibility="Auto"
                       VirtualizingPanel.IsVirtualizing="True"
                       VirtualizingPanel.VirtualizationMode="Recycling">
@@ -487,7 +512,9 @@
               </ListView.Resources>
 
               <ListView.ItemContainerStyle>
-                <Style TargetType="ListViewItem">
+                <!-- BasedOn for the same reason as the plan grid's RowStyle: an explicit
+                     container style replaces the implicit one instead of extending it. -->
+                <Style TargetType="ListViewItem" BasedOn="{StaticResource {x:Type ListViewItem}}">
                   <Setter Property="ToolTip" Value="{Binding Tooltip}" />
                   <Setter Property="HorizontalContentAlignment" Value="Stretch" />
 
@@ -502,22 +529,22 @@
 
                   <Style.Triggers>
                     <DataTrigger Binding="{Binding Outcome}" Value="Served">
-                      <Setter Property="Background" Value="{StaticResource ServedBrush}" />
+                      <Setter Property="Background" Value="{DynamicResource row-good}" />
                     </DataTrigger>
                     <!-- A stranger on the network reads differently from a device you are waiting for.
                          Last trigger wins, so this deliberately follows Served. -->
                     <DataTrigger Binding="{Binding IsUnknownDevice}" Value="True">
-                      <Setter Property="Background" Value="{StaticResource UnknownDeviceBrush}" />
+                      <Setter Property="Background" Value="{DynamicResource row-unknown}" />
                     </DataTrigger>
                     <!-- Amber, matching how the interface bar grades the same finding. Red is reserved
                          for a fault that actually stopped something. -->
                     <DataTrigger Binding="{Binding Kind}" Value="Warning">
-                      <Setter Property="Background" Value="{StaticResource WarningRowBrush}" />
-                      <Setter Property="Foreground" Value="{StaticResource WarningBrush}" />
+                      <Setter Property="Background" Value="{DynamicResource row-warn}" />
+                      <Setter Property="Foreground" Value="{DynamicResource warn}" />
                     </DataTrigger>
                     <DataTrigger Binding="{Binding Kind}" Value="Fault">
-                      <Setter Property="Background" Value="{StaticResource FaultBrush}" />
-                      <Setter Property="Foreground" Value="{StaticResource BlockedBrush}" />
+                      <Setter Property="Background" Value="{DynamicResource row-bad}" />
+                      <Setter Property="Foreground" Value="{DynamicResource bad}" />
                     </DataTrigger>
                   </Style.Triggers>
                 </Style>
@@ -578,11 +605,8 @@
                  are in the row notes and in the summary tally, and a panel that scrolls is one
                  whose bottom entries nobody reads. -->
             <Border DockPanel.Dock="Bottom"
+                    Style="{StaticResource WarningNotice}"
                     Margin="10,0,10,8"
-                    Padding="8,6"
-                    Background="{StaticResource WarningRowBrush}"
-                    BorderBrush="{StaticResource LineBrush}"
-                    BorderThickness="1"
                     Visibility="{Binding Scan.HasFindings, Converter={StaticResource BoolToVisible}}">
               <StackPanel>
                 <TextBlock Text="The plan and the segment disagree"
@@ -603,7 +627,6 @@
             <ListView ItemsSource="{Binding Scan.Rows}"
                       SelectedItem="{Binding Scan.SelectedRow}"
                       Margin="10,0,10,8"
-                      BorderBrush="{StaticResource LineBrush}"
                       ScrollViewer.HorizontalScrollBarVisibility="Auto"
                       VirtualizingPanel.IsVirtualizing="True"
                       VirtualizingPanel.VirtualizationMode="Recycling">
@@ -619,7 +642,9 @@
               </ListView.Resources>
 
               <ListView.ItemContainerStyle>
-                <Style TargetType="ListViewItem">
+                <!-- BasedOn for the same reason as the plan grid's RowStyle: an explicit
+                     container style replaces the implicit one instead of extending it. -->
+                <Style TargetType="ListViewItem" BasedOn="{StaticResource {x:Type ListViewItem}}">
                   <Setter Property="ToolTip" Value="{Binding Tooltip}" />
                   <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                   <EventSetter Event="MouseDoubleClick" Handler="OnScanRowDoubleClicked" />
@@ -630,10 +655,10 @@
                          two devices on one address. Last trigger wins, so "already planned" sits
                          after it - a device you have dealt with reads as dealt with. -->
                     <DataTrigger Binding="{Binding NeedsAttention}" Value="True">
-                      <Setter Property="Background" Value="{StaticResource WarningRowBrush}" />
+                      <Setter Property="Background" Value="{DynamicResource row-warn}" />
                     </DataTrigger>
                     <DataTrigger Binding="{Binding IsAlreadyPlanned}" Value="True">
-                      <Setter Property="Background" Value="{StaticResource ServedBrush}" />
+                      <Setter Property="Background" Value="{DynamicResource row-good}" />
                     </DataTrigger>
                   </Style.Triggers>
                 </Style>

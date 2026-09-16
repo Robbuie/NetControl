@@ -1,0 +1,72 @@
+<Window x:Class="NetControl.App.Views.UpdateWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Update NetControl"
+        SizeToContent="Height"
+        Width="520"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource bg-0}"
+        FontFamily="{DynamicResource font}"
+        FontSize="{DynamicResource ui-font}"
+        Foreground="{DynamicResource txt-0}">
+
+  <!-- Only ever shown when there IS an update. The other three outcomes of a check are one
+       sentence each and belong in a message box; a dialog with a disabled Install button on it is
+       a dialog that has wasted somebody's attention.
+
+       The window closes itself in two of the three ways this can end - the executable is swapped
+       and the new copy is starting, or setup is running and is about to close this whole process -
+       so everything below has to stay legible while the ground is going out from under it. -->
+
+  <Grid Margin="18,16,18,14">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+
+    <TextBlock x:Name="Headline" Grid.Row="0"
+               Style="{StaticResource PanelHead}"
+               TextWrapping="Wrap" Margin="0,0,0,8" />
+
+    <TextBlock x:Name="Detail" Grid.Row="1"
+               Style="{StaticResource Muted}"
+               TextWrapping="Wrap" Margin="0,0,0,12" />
+
+    <!-- What this copy is about to do to itself, in one sentence. An installed copy and a loose exe
+         update in genuinely different ways, and somebody about to press a button that closes their
+         commissioning tool is owed the specific sentence rather than the general one. -->
+    <Border x:Name="MethodPanel" Grid.Row="2"
+            Background="{DynamicResource bg-1}"
+            BorderBrush="{DynamicResource line}" BorderThickness="1"
+            CornerRadius="4" Padding="12,10" Margin="0,0,0,12">
+      <TextBlock x:Name="Method" TextWrapping="Wrap" />
+    </Border>
+
+    <!-- Hidden until Install is pressed. A progress bar sitting empty on a dialog reads as
+         something that has stalled. -->
+    <StackPanel x:Name="ProgressPanel" Grid.Row="3" Visibility="Collapsed" Margin="0,0,0,12">
+      <ProgressBar x:Name="Bar" Height="6" Minimum="0" Maximum="1" />
+      <TextBlock x:Name="ProgressNote" Style="{StaticResource Muted}"
+                 TextWrapping="Wrap" Margin="0,6,0,0" />
+    </StackPanel>
+
+    <TextBlock x:Name="Problem" Grid.Row="4"
+               Foreground="{DynamicResource bad}"
+               TextWrapping="Wrap" Visibility="Collapsed" Margin="0,0,0,12" />
+
+    <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right">
+      <Button x:Name="PageButton" Content="Releases page" Click="OnOpenReleases" />
+      <Button x:Name="CloseButton" Content="Close" Click="OnClose" />
+      <Button x:Name="InstallButton" Content="Download and install"
+              IsDefault="True" Click="OnInstall" Margin="0"
+              Style="{StaticResource PrimaryButton}" />
+    </StackPanel>
+
+  </Grid>
+</Window>

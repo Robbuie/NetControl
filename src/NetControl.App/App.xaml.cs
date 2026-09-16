@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Threading;
+using NetControl.App.Appearance;
 using NetControl.App.Composition;
 using NetControl.App.Diagnostics;
 using NetControl.App.Views;
@@ -40,6 +41,13 @@ public partial class App : Application
         _trace = TraceLog.Open(AppPaths.Logs);
         _trace.Info(BuildInfo.Describe());
 
+        // Before anything is shown, and before the object graph is built. Every window this
+        // process opens - including the error dialog three lines down, if the graph fails - is
+        // meant to come up on the chosen theme rather than flashing the default first. Neither
+        // the load nor the apply can throw: a settings file nobody can read produces the
+        // defaults, and an unknown theme name normalises to one that exists.
+        Theme.Apply(this, AppearanceStore.Load(_trace));
+
         try
         {
             _host = new AppHost(new WpfDispatcher(Dispatcher), _trace);
@@ -58,6 +66,13 @@ public partial class App : Application
         // bare name here would sit between the MainWindow type and the MainWindow property.
         var shell = new MainWindow { DataContext = _host.ViewModel };
         shell.Show();
+
+        // The previous executable, left beside a portable copy by the last update, and any finished
+        // downloads. It happens here rather than at the end of an update because the file being
+        // deleted is the one the process doing the updating was running from - which cannot delete
+        // itself, and which anything at all can delete a moment later. Silent and best-effort: a
+        // leftover file wastes some disk, and a startup that fails over one is the tool not opening.
+        UpdateApplier.SweepLeftovers(BuildInfo.ExecutablePath, AppPaths.Updates, _trace);
 
         // Fire and forget on purpose: the environment checks read the firewall over COM, which on
         // a locked-down laptop takes seconds. The window is already up and says "not checked yet",

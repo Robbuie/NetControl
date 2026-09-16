@@ -29,6 +29,18 @@ public static class AppPaths
     public static string Logs { get; } = Path.Combine(Data, "logs");
 
     /// <summary>
+    /// Where a downloaded update is put before it is run. Emptied at startup - see
+    /// <c>UpdateApplier.SweepLeftovers</c>.
+    ///
+    /// <para>Here rather than in <c>%TEMP%</c> so that a download somebody has to run by hand,
+    /// because the silent install failed, is somewhere they can be told to look and somewhere a
+    /// cleaner will not remove halfway through. Here rather than beside the executable for the
+    /// reason everything else is: a portable copy is very often running from a folder it cannot
+    /// write to.</para>
+    /// </summary>
+    public static string Updates { get; } = Path.Combine(Data, "updates");
+
+    /// <summary>
     /// The optional settings file. Absent by default and absent on most machines: everything it can
     /// hold has a working default, and the tool has to run correctly on a laptop where nobody has
     /// ever created it.

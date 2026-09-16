@@ -3,15 +3,19 @@ namespace NetControl.App.Diagnostics;
 /// <summary>
 /// How an update check ended.
 ///
-/// <para>The distinction between "not configured" and "could not be checked" is the one that
-/// earns its keep. The first is the ordinary state on a plant laptop and should be silent; the
-/// second means somebody asked for a check and did not get one, and saying nothing about that is
-/// how a site ends up believing it is on the latest build for a year.</para>
+/// <para>The distinction between "turned off" and "could not be checked" is the one that earns its
+/// keep. The first is a site that has deliberately decided this tool makes no outbound requests,
+/// and should be silent; the second means a check was attempted and did not get an answer, and
+/// saying nothing about that is how a site ends up believing it is on the latest build for a year.
+/// </para>
 /// </summary>
 public enum UpdateAvailability
 {
-    /// <summary>No manifest URL is set, so nothing was contacted. The default everywhere.</summary>
-    NotConfigured,
+    /// <summary>
+    /// Nothing was contacted, because <c>checkForUpdates</c> is false in the settings file. The
+    /// only state in which this tool makes no network connection at all.
+    /// </summary>
+    TurnedOff,
 
     /// <summary>Checked, and this is the newest published build.</summary>
     Current,
@@ -19,6 +23,6 @@ public enum UpdateAvailability
     /// <summary>Checked, and a newer build has been published.</summary>
     UpdateAvailable,
 
-    /// <summary>The check was asked for and did not complete. See the reason.</summary>
+    /// <summary>The check was attempted and did not complete. See the reason.</summary>
     Failed,
 }

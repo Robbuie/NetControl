@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>tftp-spike</AssemblyName>
+    <RootNamespace>NetControl.Spike.TftpWatch</RootNamespace>
+    <IsSpike>true</IsSpike>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Unlike Spikes 1 and 2, this one references the engine rather than carrying its own copy of
+         the protocol. Those two came before NetControl.Core existed and were answering questions
+         about whether the approach worked at all; this one exists to put code that already ships
+         in front of a robot, and a second copy of the TFTP codec is the one thing that would make
+         the exercise worthless. It stays out of NetControl.sln with the other spikes. -->
+    <ProjectReference Include="..\..\src\NetControl.Core\NetControl.Core.csproj" />
+  </ItemGroup>
+
+</Project>

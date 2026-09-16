@@ -33,6 +33,24 @@ public static class BuildInfo
     public const string Product = "NetControl";
 
     /// <summary>
+    /// The repository that publishes builds. These two lines are the only place the project names
+    /// its own home: the update check, the Help menu and the release workflow all derive their URLs
+    /// from them, so moving or renaming the repository is one edit rather than a search.
+    /// </summary>
+    public const string RepositoryOwner = "Robbuie";
+
+    /// <inheritdoc cref="RepositoryOwner"/>
+    public const string RepositoryName = "netcontrol";
+
+    /// <summary>
+    /// The page a person opens to download a build. Not the API address the update check uses -
+    /// that one is for a machine, and putting it in front of somebody looking for an installer is
+    /// a dead end.
+    /// </summary>
+    public static string ReleasesPage { get; } =
+        $"https://github.com/{RepositoryOwner}/{RepositoryName}/releases/latest";
+
+    /// <summary>
     /// One line naming the build and the machine it is running on, for the top of the diagnostic
     /// log and for the project file's first event row. The runtime and the OS are here because the
     /// two faults this project has already paid for - WPF under InvariantGlobalization, and a

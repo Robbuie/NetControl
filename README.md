@@ -34,20 +34,32 @@ before changing anything that sends a packet.**
 
 ## Getting it
 
+**[Download the latest release.](https://github.com/Robbuie/netcontrol/releases/latest)** Two ways,
+same build, neither needing administrator rights, a driver, or a .NET runtime installed first:
+
+| | |
+|---|---|
+| `NetControl-Setup-<version>.exe` | Installs per-user into `%LOCALAPPDATA%\Programs\NetControl`. Start menu entry, uninstall, and an exe at a path that stays put - which is what a firewall rule wants. |
+| `NetControl.exe` | The same tool as one loose self-contained file. Copy it anywhere and run it. |
+
+The loose file is for a laptop somebody was handed that morning; the installer is for one they use
+every week. **Both update themselves** - the installed copy by running the new installer silently,
+the portable one by swapping its own executable - and neither runs anything it has not checked
+against the checksum published with it. [DEPLOY.md](DEPLOY.md) covers the choice, how updating works
+and how to turn it off.
+
+Building it yourself:
+
 ```powershell
 dotnet build
 dotnet test
 dotnet run --project src/NetControl.App
-```
 
-The thing that goes on a plant laptop is one self-contained exe with no installer, no admin rights
-and no driver:
-
-```powershell
 pwsh tools/publish.ps1              # -> artifacts/NetControl-<version>/NetControl.exe
+pwsh tools/publish.ps1 -Installer   # -> dist_installer/NetControl-Setup-<version>.exe as well
 ```
 
-See [DEPLOY.md](DEPLOY.md) for what to do with it, and for the optional update check.
+Cutting a release is a tag push - see [RELEASING.md](RELEASING.md).
 
 ## Layout
 
@@ -71,7 +83,9 @@ Version 1.0.0 is reserved for the build that commissions a real panel without th
 
 ## Licence
 
-Not yet decided - see the note at the top of [DEPLOY.md](DEPLOY.md). The code is built from public
-specifications only: RFC 951, RFC 1542, RFC 2131/2132 and ODVA's published CIP and EtherNet/IP
-documentation. Nothing here is derived from decompiling the Rockwell tool or from Wireshark's
-GPL dissector.
+Copyright reserved - see [LICENSE](LICENSE). The repository is public so the tool can be read,
+audited and downloaded; it is not open source, and nothing here may be copied into another product.
+
+The code is built from public specifications only: RFC 951, RFC 1542, RFC 2131/2132, RFC 1350 and
+ODVA's published CIP and EtherNet/IP documentation. Nothing here is derived from decompiling the
+Rockwell tool or from Wireshark's GPL dissector - which is what makes publishing it possible at all.

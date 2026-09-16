@@ -34,20 +34,26 @@ Keep dependencies few. Every package added is a package someone has to justify t
 
 ```
 NetControl.sln                solution - spikes are deliberately NOT in it; tools/ is
+.github/workflows/            tests on every push; release.yml builds and publishes on a v* tag
+installer/NetControl.iss      Inno Setup, per-user, no admin - see RELEASING.md
 src/NetControl.Core/          network engine - MUST NOT reference any UI assembly
     Ipv4Subnet.cs             checked address + mask: prefix, network, contains
     Interfaces/               NIC inventory, UDP port ownership, firewall state
     Dhcp/                     BOOTP/DHCP codec, server engine, assignment policy
     Persistence/              SQLite project file: plan, assignments, append-only event log
+                              (DhcpEventRecorder and TftpEventRecorder live here, not in the engines)
     Enip/                     EtherNet/IP encapsulation: one session, one device
     Cip/                      CIP objects - 0xF5 is where the address lives
     Commissioning/            set static / disable BOOTP, with the readback
     Discovery/                the scan + ARP join, and the plan-against-segment comparison
     Diagnostics/              the rolling diagnostic log - NOT the commissioning record
+    Tftp/                     RFC 1350 codec + the server root check - the image-backup half
     Oui/                      packed IEEE vendor table + the embedded oui.bin
 src/NetControl.App/           WPF front end - net10.0-windows; see its README
+    Appearance/               the shared design system: tokens, styles, the appearance store
     Composition/              object graph, and the one abstraction over the WPF dispatcher
-    Diagnostics/              readiness grading, the build stamp, settings, the update check
+    Diagnostics/              readiness grading, the build stamp, settings, and the updater -
+                              check, download-with-checksum, and the two ways of applying one
     Serving/                  listener lifetime, and "is this MAC in the plan?"
     ViewModels/               all the UI logic, deliberately free of WPF types
     Views/                    XAML, two value converters, one file dialog
@@ -55,9 +61,49 @@ src/NetControl.Cli/           headless commissioning               (not started)
 src/NetControl.DeviceSim/     fake EtherNet/IP device for hardware-free development
 tests/NetControl.Tests/       xUnit
 tools/NetControl.OuiPacker/   refreshes src/NetControl.Core/Oui/oui.bin; not shipped
-spikes/                       Phase 0 throwaways; not part of the solution build
+tools/publish.ps1             the exe, and with -Installer the setup exe too
+spikes/                       not part of the solution build
+    Spike1/Spike2             Phase 0 throwaways, self-contained
+    Spike3.TftpWatch          a door into Core's TFTP watch, until the app has a tab
 _trash/                       things the agent sandbox could not delete - safe to remove
 ```
+
+### The appearance system
+
+`src/NetControl.App/Appearance/` is a port of the design system shared with the DWG viewer
+(`~/Projects/DWG Viewer/src/theme.py`) and the Redline PDF app (`src/css/app.css`), so the three
+read as one product. Three independent axes - **theme** (5), **accent** (6), **density** (3) - and
+90 combinations that need no per-combination code.
+
+- `Theme.cs` holds the catalogs, **copied value for value from `theme.py`**: same token names, same
+  hex, same labels and notes, so a change in one app can be diffed straight against the others.
+  Three tokens exist here that `theme.py` does not have and are marked where they are defined -
+  `bad`, the `row-*` tints, and `grid-row-h` - because this app paints a table of device states
+  rather than a drawing, and needs a red that is not the accent. **They are worth back-porting.**
+- `ThemeResources.cs` is the only toolkit-specific half: it turns a token set into a
+  `ResourceDictionary` and swaps it in. Qt substitutes `var(--bg-1)` into a text stylesheet; WPF
+  resolves `{DynamicResource bg-1}`. The tokens are the contract, the delivery is per-toolkit.
+- `Controls.xaml` is every control template, written **entirely** in `{DynamicResource}`.
+  `{StaticResource}` for a colour would resolve once at load and leave open windows on the old
+  theme, which is what the live preview in the appearance dialog depends on not happening.
+- `AppearanceStore.cs` writes `%LOCALAPPDATA%\NetControl\appearance.json` - its own file, not a
+  section of `settings.json`, because that one is site configuration the app must never rewrite.
+- `ThemeTests.cs` is the guard: no literal colour in any XAML file (only `#ffffff`, the text on the
+  accent fill), every `{DynamicResource}` names a token that exists, every accent tint moves when
+  the accent does, and the normalisers never return junk.
+
+Three traps, all already paid for:
+
+- **The implicit `TextBlock` style must not set `Foreground`.** Every string on a button, a tab or
+  a menu row is rendered by a TextBlock a ContentPresenter made, and a style foreground beats the
+  inherited one - so disabled controls keep full-strength text and a background tab looks selected.
+  Colour comes down the tree from the window; the style only says typeface and rendering mode.
+- **An explicit `RowStyle`/`ItemContainerStyle` replaces the implicit one rather than extending
+  it.** Both logs and the plan grid carry `BasedOn="{StaticResource {x:Type ...}}"` for this
+  reason; without it they keep their triggers and lose their templates.
+- **A `{DynamicResource}` inside a Freezable in a `Setter.Value` does not resolve.** That is what a
+  `GradientStop` in a style is, so the two gradients are composed in `ThemeResources` and
+  referenced as one finished brush.
 
 **The layering rule is the important one.** `NetControl.Core` must stay UI-free so the same code path
 drives the GUI, the CLI, and the tests. If something in Core needs to report progress, it raises
@@ -75,20 +121,39 @@ $env:NETCONTROL_WIRE_SERVE=1; dotnet test --filter ServesAPlannedDeviceOutOfARea
 dotnet run --project src/NetControl.App
 dotnet run --project src/NetControl.Cli -- commission plan.csv --nic "I219"
 
-# The single exe that gets copied onto a plant laptop. Deliberately not in the .csproj: setting
-# PublishSingleFile there pins a RuntimeIdentifier onto every build and test run.
+# What gets onto a plant laptop, and both are published on every release. Deliberately not in
+# the .csproj: setting PublishSingleFile there pins a RuntimeIdentifier onto every build and test run.
 #
 # Use the script rather than the raw command: it runs the tests first, passes the short commit as
 # SourceRevisionId so the exe reports 0.5.0+a1b2c3d rather than 0.5.0, and writes the SHA256 and the
-# update manifest beside it. DEPLOY.md is the whole story.
-pwsh tools/publish.ps1
+# update manifest beside it. DEPLOY.md is the whole story; RELEASING.md is how a release is cut.
+pwsh tools/publish.ps1                    # artifacts/NetControl-<version>/NetControl.exe
+pwsh tools/publish.ps1 -Installer         # and dist_installer/NetControl-Setup-<version>.exe
 pwsh tools/publish.ps1 -DownloadUrl https://intranet.example/tools/netcontrol/
+
+# A release is a tag push. The workflow refuses to build a tag that disagrees with VersionPrefix.
+git tag v0.6.0; git push --tags
 
 dotnet publish src/NetControl.App -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
 
-# spikes are standalone
+# Spikes 1 and 2 are standalone Phase 0 throwaways. Spike 3 is not: it references NetControl.Core
+# on purpose, because it exists to put the shipping TFTP engine in front of a robot before the app
+# has a tab for it. It takes UDP/69, so the real TFTP server has to be stopped - BENCH.md Run 6b.
 dotnet run --project spikes/Spike1.BootpListen -- --list
 dotnet run --project spikes/Spike2.CipStaticIp -- read 192.168.1.51
+dotnet run --project spikes/Spike3.TftpWatch -- --list
+dotnet run --project spikes/Spike3.TftpWatch -- --nic 12 --root "C:\TFTP-Root"
+# --send is a client: one write request, no file data, and it reports which address and port
+# answered. Point it at the watch in another window to exercise the whole path with no robot.
+dotnet run --project spikes/Spike3.TftpWatch -- --send 127.0.0.1 --port 6969
+# From another machine on the robot network, leaving by a named adapter. No robot, no outage.
+dotnet run --project spikes/Spike3.TftpWatch -- --send 10.0.0.5 --from 10.0.0.55 --log probe.txt
+# In a plant, always both: --log is a flushed transcript, --project is the append-only record.
+# Started with neither it says so before it binds, because a scrollback buffer is not a record.
+dotnet run --project spikes/Spike3.TftpWatch -- --log run6b.txt --project run6b.netcproj
+# The bench copy: one self-contained exe at a path that stays put, plus the netsh line for it.
+# A firewall rule names an exe, and bin\Debug is not somewhere to point one.
+pwsh tools/publish-tftp-spike.ps1
 
 # Refresh the embedded IEEE OUI table. A chore, not a build step - commit the changed oui.bin.
 dotnet run --project tools/NetControl.OuiPacker -- update
@@ -487,19 +552,179 @@ written without an SDK, and green on the same run.
   naming the build that opened it** - a commissioning record that cannot say which version wrote it
   is missing the fact you need once a bug has been found and fixed. Only the real app stamps it; a
   test that constructs a view model gets an event log holding only what its own actions put there.
-- `UpdateCheck` + `AppSettings`: one GET of a small JSON manifest, **off unless a URL is configured**
-  in `%LOCALAPPDATA%\NetControl\settings.json`. It never downloads and never installs. Both quiet
-  states are silent; a check that was asked for and failed is not. See `DEPLOY.md`.
-- `tools/publish.ps1` runs the tests, publishes the single-file exe, stamps the commit, and writes
-  the SHA256 and the manifest beside it.
+- `UpdateCheck` + `AppSettings`: one GET, five-second timeout, and it fetches nothing but the
+  answer - downloading and applying are `UpdateDownloader` and `UpdateApplier` below, reached only
+  by somebody pressing Install. It asks the repository's latest GitHub release by default; a site that mirrors builds
+  points `updateManifestUrl` at its own `version.json`, and a site that wants no outbound request at
+  all sets `"checkForUpdates": false` - the one state in which nothing is contacted, asserted by a
+  test that counts calls on the handler. Both shapes of manifest are understood and **which one is
+  in front of it is decided by the JSON, not by the URL**: a document carrying `tag_name` is a
+  GitHub release, and the page offered to a person is `html_url`, never GitHub's own `url`, which is
+  the API address of the release object. See `DEPLOY.md`.
+- **A failed check is silent at startup and loud on request.** On a segment with no route out it
+  fails at every launch, and a warning that is always present is one people learn to skip - the same
+  argument that keeps the two quiet states quiet. `AppHost` therefore puts only an *available* update
+  in the status bar, while **Help > Check for updates** answers all four outcomes because somebody
+  pressed it and is waiting. That split is the whole reason `UpdateResult.StatusText` says something
+  for `Failed` while the startup path does not use it.
+
+**The updater downloads and applies.** `UpdateDownloader`, `UpdateApplier`, `InstallLocation` and
+`UpdateWindow`, reached from the status-bar line or from Help. Four things in it are decisions
+rather than plumbing:
+
+- **An asset with no published `.sha256` is refused before a byte is fetched**, and one that hashes
+  to something else is deleted rather than kept. The next thing that happens to a verified download
+  is that it is *executed*, on a laptop that writes configuration into plant equipment. This is not
+  a defence against somebody who controls the release page - they would publish a matching checksum
+  - it is a defence against a truncated transfer, a captive portal answering 200 with a login page,
+  and a laptop that slept mid-download. All three produce an executable that would otherwise run.
+  The length is checked before the hash so the message can name the actual fault.
+- **There is no helper script, and there must not be one.** A batch file that waits for a process to
+  exit and then moves files is the traditional way to do this and is the one part nobody can test -
+  it runs once, after the application that would report on it has closed. Instead: an installed copy
+  hands off to Inno Setup, whose `/CLOSEAPPLICATIONS` closes this process **through the Restart
+  Manager**, which asks a window to close the ordinary way before terminating anything - so
+  `App.OnExit` runs and the socket and the project file are released normally. Which is why
+  `UpdateApplier.RunInstaller` must **not** shut the application down: a process that has already
+  gone is not one setup can restart. A portable copy uses the other Windows fact - a running image
+  can be *renamed* though not overwritten - so it moves itself to `NetControl.exe.superseded`, copies
+  the new build into the name it vacated, and starts it. The rename goes first because it is both the
+  step most likely to be refused and the reversible one.
+- **The two successes place opposite obligations on the caller**, which is why `UpdateApplyOutcome`
+  has two of them rather than a boolean: after `InstallerRunning` the app must stay alive to be
+  closed, after `Restarting` it must shut down. A single "it worked" would be right half the time.
+  The one asymmetry inside the swap: a launch that fails after a successful swap is **not** rolled
+  back - the new build is in place and correct, and putting the old one back would undo a good
+  update because a window did not open.
+- **An update is refused while the listener is running or a device is being commissioned**, with the
+  reason on screen rather than a greyed-out button. Both are states where this process disappearing
+  costs something relaunching cannot get back: a request nobody saw, or a record that stops in the
+  middle of a write to live equipment.
+
+`UpdateApplier.SweepLeftovers` runs from `App.OnStartup` rather than at the end of an update,
+because the file being deleted is the one the updating process was running from - which cannot
+delete itself and which anything can delete a moment later.
+- `tools/publish.ps1` runs the tests, publishes the single-file exe, stamps the commit, writes the
+  SHA256 and the manifest beside it, and with `-Installer` wraps it with Inno Setup.
+
+**TFTP: the codec and the server-root check are written.** `PLAN-TFTP.md` parts E1 and E2. Written
+in a session with no SDK; compiled and green on a machine that had one, at 549 tests.
+
+The reason this is in a BOOTP tool at all: **a FANUC image backup over Ethernet is BOOTP and *then*
+TFTP.** The controller is restarted into its boot monitor, brings the port up with no address,
+broadcasts a BOOTP request, and only then sends a TFTP write request for the image. tftpd32/tftpd64
+serves both halves from one window, which is exactly why nobody can tell which half broke when a
+backup will not start. This tool already owns the first half and owns it better; `Tftp/` is what
+lets it finish the sentence.
+
+- `NetControl.Core/Tftp` - `TftpPacket` (all six opcodes, RFC 2347/2348/2349/7440 options), the
+  message records, `TftpErrorText`, `TftpLimits`, and `TftpRootCheck`. No new dependency.
+- **Strings decode as Latin-1, not ASCII.** `Encoding.ASCII` replaces every byte above 0x7F with a
+  question mark, and the filename a controller asked for is the one thing this module exists to
+  report accurately. The raw bytes are kept beside the string, and the name is never trimmed,
+  normalised or case-folded - no TFTP server logs the name it refused, so this tool must not be the
+  second thing that rewrites it.
+- **`TftpRootCheck` writes a real probe file and deletes it.** Every permission API on Windows
+  answers about the ACL, which is a different question from "will a file land here" - share
+  permissions, a full volume, a quota or a network path that has gone away all pass the ACL check
+  and refuse the write. Same reasoning as reading an address back off a device.
+- **Negotiating `blksize` is not the fix for block-counter rollover, above about 90 MB.** 512-octet
+  blocks cap a transfer at 33,553,920 bytes; 1468 - the largest that still fits an Ethernet frame -
+  only reaches 96,205,380. A large FANUC image wraps the counter either way, and RFC 1350 does not
+  say whether to wrap to 0 or to 1, so two ends that disagree write a file of the right length with
+  the wrong contents. `NegotiatingTheLargestUnfragmentedBlockDoesNotSaveALargeImage` exists so that
+  correction cannot regress into the comfortable version.
+
+**The UDP/69 watch is written.** `PLAN-TFTP.md` part E3, Observe mode. `TftpWatchServer` binds
+0.0.0.0:69 with IP_PKTINFO on and attributes each datagram to its arrival adapter in software - the
+same design as `DhcpServer`, and for the same reason: binding per adapter is what makes a tool miss
+the request that explains everything. It records the filename **exactly as sent**, the mode, the
+options offered, the source endpoint and the arrival adapter, and then refuses.
+
+Five things were decided while building it that the plan did not settle:
+
+- **It answers rather than staying silent.** TFTP has no other way to say no. A client that gets
+  silence assumes the packet was lost and retransmits until it times out, so a silent watch turns
+  one request into a minute of them and leaves somebody at the pendant watching a progress bar that
+  will never move. `SendRefusal` can turn it off for a strictly passive observation; it defaults on.
+- **A request on an adapter outside the filter is recorded and never answered.** This is the one
+  place the DHCP analogy breaks. Watch mode there transmits nothing at all, so the question never
+  arose; here a refusal *is* a transmission, and this tool does not transmit onto a segment nobody
+  selected.
+- **The port-conflict refusal is worded the opposite way round from the DHCP one.** On UDP/67
+  another process is an intruder. On UDP/69 it is almost certainly the backup server doing its job,
+  and a message that reads like an accusation would be wrong about the most common case.
+- **`TftpWatchMode.Accept` is declared and refuses to start.** A tool that reports itself as
+  accepting backups while quietly refusing every one of them would be worse than no tool. Same
+  precedent as `DeviceState.Verified` existing before anything set it.
+- **The retransmit key is the source endpoint plus the filename.** TFTP has no transaction id and no
+  MAC. Address and port together are the client's TID, fixed for one attempt and different on the
+  next, so a controller that gave up and started again reads as a new attempt rather than a repeat.
+  `TftpRetransmitFilter` is deliberately not `RetransmitFilter`: same job, different key, and the
+  DHCP one is load-bearing.
+
+`EventCategory.Tftp` was added, which is the first use of that enum's `Other` member doing its job -
+a project file written by an older build maps the unfamiliar name to `Other` rather than refusing to
+open.
+
+**The watch records, and there is a way to run it.**
+
+- `TftpEventRecorder` beside `DhcpEventRecorder`, under the same two rules: a handler on the receive
+  loop must not throw, and a failed INSERT is counted and reported rather than allowed to stop the
+  watch recording the next request - which on a bench session may be the only one anybody gets.
+  **No row it writes carries a device id.** TFTP has no hardware address in it, so the source
+  address goes in `Target` and the device column stays null; turning an IP into a planned device
+  would be a join this tool has no evidence for.
+- Severity follows the DHCP rule - about whether something needs fixing, not about whether we
+  answered. In Observe mode every request is refused by design, so a refusal is `Info`; a request
+  that would corrupt the image, or one whose refusal could not be sent, is `Warn`.
+- **A concern raised against every request is not a concern.** The first version of
+  `TftpRequestMessage.Concerns` flagged any write request that offered no `blksize` - which is
+  exactly what a plain RFC 1350 client sends, so an ordinary request could never be graded `Info`
+  and the warning column would have meant nothing. A test caught it. What replaced it fires only
+  when the controller has **told us** the size via `tsize` and the block size in force cannot carry
+  it: the evidence comes from the far end rather than from a guess, and it routes through
+  `TftpLimits.DescribeRolloverRisk`. Same reasoning that keeps `PlanConformance` silent about a
+  device that did not answer - a list that flags everything is a list people learn to skip.
+- The raw filename bytes are carried as hex **only when the decoded name will not print**. That is
+  the case where the string is not evidence and the bytes are, and it is rare enough that carrying
+  hex on every row would be noise.
+- `spikes/Spike3.TftpWatch` is the only way to run any of this today: **nothing in `NetControl.App`
+  references `NetControl.Core.Tftp`.** The spike references Core rather than carrying its own codec,
+  which is the one thing that would make a bench session meaningless. See `spikes/README.md`.
+
+**The bench session's own equipment.** Three things that are not features and exist only so an hour
+of robot downtime produces something afterwards:
+
+- **`--log` and `--project`.** The deliverable of Run 6b is three short strings printed once, in a
+  plant, by somebody with a robot to put back. `--log` mirrors everything printed to a file, flushed
+  line by line and appended - a copy of what a person read, headed with the machine, the account and
+  the arguments. `--project` records through `TftpEventRecorder` into a project file, which is the
+  record proper: append-only, and the database refuses an `UPDATE`. **`--project` refuses to start
+  if the file cannot be opened**, because a watch running without the record somebody asked for
+  looks afterwards exactly like a watch that saw nothing. With neither, the spike says so before it
+  binds. The two are deliberately different things, the same way `TraceLog` and `EventLog` are.
+- **`TftpRefusalSource`.** See the "not proven" note below. A setting rather than a decision,
+  because the observation that would settle it costs a robot for an hour.
+- **`tools/publish-tftp-spike.ps1`.** One self-contained exe at a path that stays put, and
+  `--firewall` printing the elevated `netsh` line for it from `FirewallCheck.BuildAddRuleCommand`.
+  A firewall rule names an executable, and `bin\Debug\net10.0\tftp-spike.exe` is rebuilt by the next
+  run - which is a poor thing to have pointed an elevated rule at while a controller is waiting.
 
 ### Pick up here
 
-**Everything in `src/` compiles and all 454 tests pass.** The hand-back, the plan-versus-scan
+**Everything in `src/` compiles and all 590 tests pass.** The hand-back, the plan-versus-scan
 comparison and the diagnostic log were all written in a session with no SDK and needed no fixing
 once one was available - the only thing that had to be corrected was an XML comment in
 `Directory.Build.props`, which is in the C# specifics section because of how far its error message
 lands from its cause.
+
+`Tftp/` went the same way: 23 files written without a compiler, and on first build the whole
+solution came up clean under warnings-as-errors with 548 of 549 tests passing. The one failure was
+a hand-written assertion, not ported logic - the Python port asserted a whole six-octet frame and
+the transcription to C# kept the four header bytes and dropped the payload from the *expectation*.
+**If that technique gets used again, have the port emit the C# expectations rather than retyping
+them**, because retyping is now the only step in it that has ever produced a bug.
 
 There is no outstanding code work that can be done at a desk. What is left is looking at it and
 putting it in front of hardware.
@@ -511,7 +736,19 @@ build time and shows an empty column at the bench:
 - the plan-versus-segment findings panel under the scan list,
 - the version in the status bar,
 - the update-check line beside it - point `updateManifestUrl` at a file that does not exist and
-  check it says so quietly rather than blocking startup.
+  check startup stays silent about it (the failure belongs in the diagnostic log, not the status
+  bar) while **Help > Check for updates** says so out loud,
+- the whole **Help** menu, which is new: Check for updates, Releases page, Open the diagnostic log
+  folder, About. Worth doing on a machine with no route out as well as one with, since silence at
+  startup and an answer on request are the two halves of one decision,
+- **`UpdateWindow`, and the update it applies.** The first real one has to be watched: cut 0.5.1,
+  run 0.5.0 from a folder on the desktop, and check the portable swap end to end - the progress bar
+  moves, `NetControl.exe.superseded` appears, the new build comes up reporting 0.5.1, and the
+  superseded file is gone after the *next* start rather than that one. Then the installed path, which
+  is the one with no test behind it at all: install 0.5.0, update to 0.5.1, and check that setup
+  closed the app rather than killing it - an `App.OnExit` line at the end of the diagnostic log is
+  the evidence, and its absence means the Restart Manager terminated the process, which would be a
+  project file closed without its handle released.
 
 **Check the log file exists.** Run the app and look in `%LOCALAPPDATA%\NetControl\logs`. Then make
 it fail - open a project file that another program is holding - and check the dialog names the log
@@ -678,14 +915,61 @@ Proven on this machine, by tests that run every build:
 - **a folder it cannot write into disables the log and records why, and every later call is a no-op
   rather than an exception** - it runs inside the crash handlers, where throwing would replace a
   reportable fault with an unreportable one
-- the update check contacts nothing at all when no manifest URL is configured, asserted by the
-  handler counting its calls; it says nothing when already current, and does say so when a check was
-  asked for and failed
+- the update check contacts nothing at all when it is turned off, asserted by the handler counting
+  its calls; it asks the repository's own latest release when nothing is configured; it says nothing
+  when already current, and does say so when a check was asked for and failed
+- a GitHub release is told from a mirrored manifest by its JSON rather than by its URL, the page
+  offered to a person is `html_url` and never the API `url` beside it, and the installer and the
+  portable exe are picked out of the assets by name with the `.sha256` beside each
+- **an asset with no published checksum is refused without a byte being fetched**, asserted by the
+  handler's call count; one whose body is the wrong length is refused naming the length; one that
+  hashes to something else is refused *and the file is deleted*
+- the portable swap puts the new build in place and keeps the old one beside it, replaces a
+  superseded build left by an earlier update, **puts the running build back when the copy fails**,
+  keeps the new build when the swap worked but the launch did not, and replaces nothing at all when
+  the process cannot say where it is running from
+- the leftover sweep clears the previous build and the updates folder, and says nothing about a
+  folder that was never there - it runs during startup, where throwing is the tool not opening
 - versions compare as numbers, so 0.10.0 is newer than 0.9.0, and a commit suffix is which build
   rather than which version
 
+- the TFTP codec round-trips every opcode against hand-built frames, reads block numbers
+  big-endian, keeps a filename byte-for-byte through Latin-1 including one ASCII would destroy,
+  parses a zero-length DATA as the end of an exactly-sized file rather than as a malformation,
+  takes the whole message from an ERROR that was never null-terminated, tolerates zero padding
+  after the options, and refuses a duplicate option rather than letting one of two silently win
+- 1468-octet blocks reach 96,205,380 bytes and not a byte more, so a large image wraps the block
+  counter even at the biggest block size that does not fragment - the claim that "negotiating
+  blksize is the fix" fails in a test rather than on a night shift
+- `TftpRootCheck` writes a real probe file and removes it, reports a missing folder as missing
+  rather than as unwritable, warns rather than blocks on low space, and grades a folder it could
+  not measure as Unknown rather than as fine
+
+- the watch records a write request off a real socket over loopback, with the filename exactly as
+  sent, the options as offered and the source port as the client's transfer identifier
+- it answers an observed request with a TFTP error, and answers a retransmit again while marking
+  only the log entry
+- the refusal leaves the well-known port by default and a fresh ephemeral one when asked, asserted
+  by the source port the client actually saw rather than by what the engine intended - and the row
+  records which was used, while a request that was not answered records no port at all
+- it records a request on an adapter outside the filter and **transmits nothing**, and transmits
+  nothing at all when refusals are turned off - both asserted on the wire, not just in the engine
+- a datagram on UDP/69 that is not TFTP is reported rather than discarded, and a mid-transfer
+  packet arriving there is reported as the firewall-or-NAT signature it usually is
+- Accept mode refuses to start rather than quietly behaving like Observe
+
 Proven once, by hand, on a real machine - not by a test, so treat these as "seen working" rather
 than "cannot regress":
+
+- **`tftp-spike --list` ran on a real Windows machine and did diagnostic work on its first run.**
+  It enumerated thirteen adapters, named the process holding UDP/69 *by name and PID*, read the
+  firewall state, and graded a real folder as writable with its free space. What it found was a
+  TFTP server nobody remembered was running - a SolarWinds instance left over from testing months
+  earlier, on a wildcard bind. That is the interface-bar thesis working on the first real machine
+  it met, and it is also a caution: it looked like an answer to "which server do the robots use"
+  and was not.
+- **The bind refusal fired against a real port owner**, and worded the conflict the right way round
+  for a machine where the process holding UDP/69 is meant to be there.
 
 - the window opens, every binding in `MainWindow.xaml` resolves, and the bar renders
 - `NicMonitor` reports a fourteen-adapter laptop accurately, ranks the one real Ethernet port to
@@ -717,6 +1001,33 @@ Not proven, and not provable at a desk:
   configuration survived, which is the only test that distinguishes a configuration written to
   flash from one written to RAM.
 
+- **No controller has ever sent this tool a TFTP request.** Every watch test is a synthetic frame
+  over loopback. In particular the refusal goes out of the listening socket by default, so its
+  source port is 69 rather than a fresh transfer identifier - which is what servers do for an
+  immediate rejection, and which no FANUC has been seen to accept. **Both behaviours are now
+  reachable without a code change** (`TftpWatchOptions.RefusalSource`, `--refuse-from-ephemeral`),
+  because the only way to answer it is a controller in its boot monitor and nobody gets two of
+  those in one visit - but which one a FANUC accepts is still unknown, and every log row names the
+  port its refusal left from so the observation survives the session. **`TftpFrames.cs` holds
+  frames built to match what a client should emit, not a capture.** When a controller is next doing
+  an image backup, take one and add the real ones; it is worth more than the rest of that file.
+- **Accept mode does not exist**, so nothing here has ever received a file. The watch can say what
+  was asked for and refuse it; the transfer itself is still the real server's job.
+- **The app has no TFTP surface at all.** No view model, no tab, no menu entry - `TftpRootCheck` is
+  called by a test and nothing else, and the UDP/69 readiness row from PLAN-TFTP.md part E1 is not
+  built. Everything TFTP is reachable only through `spikes/Spike3.TftpWatch` and the test suite.
+- **The watch has never received a TFTP request from anything but a test.** `tftp-spike --list` has
+  run on a real machine; the watch itself has never had a real client talk to it, and `--send` has
+  never been run at all.
+
+- **No update has ever been applied.** The download and the portable swap are covered by tests,
+  including the rollback, but every one of them runs against a temp folder and a stubbed launcher.
+  Nothing has replaced a real running executable, and **the installed path has no test at all** -
+  it is `Process.Start` on an Inno Setup exe plus the Restart Manager, and there is nothing in that
+  a test could assert without asserting about the stub. `InstallLocation.Describe` has never read
+  the real uninstall key either, so the choice between the two paths is itself unproven. The first
+  release is the test: see the note in "Pick up here".
+
 - **`ArpTable` has never read a real ARP table.** Every test that touches the join uses
   `FakeArpLookup`. It is the one piece in the project with a hand-marshalled native struct in it,
   and a wrong offset there produces plausible garbage rather than an exception - so until a scan
@@ -735,8 +1046,18 @@ Not proven, and not provable at a desk:
   `TraceLog`, in `%LOCALAPPDATA%`, is a rolling text file for working out why the *application*
   misbehaved, and it is deleted on a schedule. Do not put equipment events in the second, and do
   not put stack traces in the first.
-- `DEPLOY.md` - what ships, where the version comes from, and how the update check is turned on.
-  `README.md` is the front door for somebody who has never seen the repository.
+- `DEPLOY.md` - what ships, where the version comes from, and how the update check is turned off.
+  `RELEASING.md` - the repository, the installer, and how a release is cut. `README.md` is the front
+  door for somebody who has never seen the repository.
+- **The repository is public and the licence is not open source** (`LICENSE`: copyright reserved,
+  published to be read and downloaded). That is only possible because nothing here is derived from
+  decompiling the Rockwell tool or from Wireshark's GPL dissector - which makes the rule in the
+  Licensing section above a distribution constraint now, not just a preference.
+- **Never change the `AppId` GUID in `installer/NetControl.iss`.** It is how Windows recognises an
+  existing install and upgrades it in place rather than leaving two NetControls in Add/Remove
+  Programs. The install is per-user (`%LOCALAPPDATA%\Programs\NetControl`) so it needs no admin,
+  and the uninstaller removes the log folder but **deliberately leaves `settings.json`** - that file
+  is site configuration, most importantly the switch that stops the tool touching the network.
 - `AppPaths` is the only place that decides where the tool keeps its own files, and it is
   `%LOCALAPPDATA%` rather than beside the exe on purpose. The product is a single file that gets
   copied into Downloads and onto USB sticks, and a tool that writes its log next to itself will one

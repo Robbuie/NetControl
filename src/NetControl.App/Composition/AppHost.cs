@@ -93,13 +93,19 @@ public sealed class AppHost : IDisposable
     }
 
     /// <summary>
-    /// Asks a published manifest whether there is a newer build - and only if somebody configured
-    /// one. See <see cref="UpdateCheck"/>: no URL in the settings file means no connection is made
-    /// at all, which is the state every machine is in until a site decides otherwise.
+    /// Asks whether a newer build has been published - the repository's latest release by default,
+    /// a site's own manifest if one is configured, and nothing at all if <c>checkForUpdates</c> is
+    /// false. See <see cref="UpdateCheck"/>.
     ///
     /// <para>Last in the startup sequence and awaited only so failures are logged in order. It
     /// cannot throw, and nothing waits on the answer: the window is up and usable before this runs.
     /// </para>
+    ///
+    /// <para><b>Only an available update reaches the status bar here.</b> A failed check does have
+    /// something to say, but not on this path: on a plant segment with no route out it fails at
+    /// every launch, and a warning that is always present is one people stop reading - which is the
+    /// same argument that keeps both quiet states quiet. The failure is in the diagnostic log, and
+    /// <b>Help &gt; Check for updates</b> reports it to somebody who is waiting for an answer.</para>
     /// </summary>
     private async Task CheckForUpdatesAsync()
     {
@@ -109,7 +115,7 @@ public sealed class AppHost : IDisposable
             .RunAsync(settings, BuildInfo.Version, trace: _trace)
             .ConfigureAwait(true);
 
-        ViewModel.UpdateStatus = result.StatusText;
+        ViewModel.UpdateStatus = result.IsUpdateAvailable ? result.StatusText : null;
     }
 
     public void Dispose()

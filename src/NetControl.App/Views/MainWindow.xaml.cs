@@ -1,7 +1,12 @@
+// UseWPF drops System.IO from the implicit usings, because WPF ships its own Path. The Help menu
+// touches Directory and IOException, so this file asks for it back by name - see CLAUDE.md.
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using Microsoft.Win32;
+using NetControl.App.Composition;
+using NetControl.App.Diagnostics;
 using NetControl.App.ViewModels;
 
 namespace NetControl.App.Views;
@@ -18,6 +23,9 @@ public partial class MainWindow : Window
     private const string ProjectFilter = "NetControl project (*.netcproj)|*.netcproj|All files (*.*)|*.*";
 
     private const string PlanFilter = "Plan (*.csv)|*.csv|All files (*.*)|*.*";
+
+    /// <summary>Guards the Help menu's update check against a second press while one is in flight.</summary>
+    private bool _checkingForUpdates;
 
     public MainWindow() => InitializeComponent();
 
@@ -261,6 +269,223 @@ public partial class MainWindow : Window
         {
             command.Execute(null);
         }
+    }
+
+    /// <summary>
+    /// Theme, accent and density. The dialog previews as it is used and saves on OK, so there is
+    /// nothing to do with the result here.
+    /// </summary>
+    private void OnAppearance(object sender, RoutedEventArgs e) =>
+        new AppearanceWindow { Owner = this }.ShowDialog();
+
+    /// <summary>
+    /// The update check somebody asked for, which unlike the one at startup always answers.
+    ///
+    /// <para>The startup check is silent unless there is a newer build, because on a plant segment
+    /// with no route out it fails at every launch and a warning that is always there is one nobody
+    /// reads. This one is different: a person pressed it and is standing there waiting, so all four
+    /// outcomes get a sentence - including "switched off on this machine", which is otherwise
+    /// indistinguishable from "checked, and you are current".</para>
+    ///
+    /// <para>When there is something newer this opens <see cref="UpdateWindow"/>, which says what
+    /// it is about to do to this copy before it does it. Nothing is fetched by the check itself,
+    /// and nothing is ever run that has not been checked against the checksum published with it.
+    /// </para>
+    /// </summary>
+    private async void OnCheckForUpdates(object sender, RoutedEventArgs e)
+    {
+        // A second press while the first is in flight would produce two dialogs, and the five-second
+        // timeout is long enough for somebody to try.
+        if (_checkingForUpdates)
+        {
+            return;
+        }
+
+        _checkingForUpdates = true;
+
+        try
+        {
+            // Read afresh rather than caching what startup read: somebody who has just edited
+            // settings.json to point at a mirror is very likely the person pressing this.
+            AppSettings settings = AppSettings.Load(AppPaths.SettingsFile);
+
+            // RunAsync does not throw - a failure is one of its four results - so there is nothing
+            // to catch here and no way for this handler to take the window down.
+            UpdateResult result = await UpdateCheck.RunAsync(settings, BuildInfo.Version);
+
+            if (ViewModel is { } viewModel)
+            {
+                viewModel.UpdateStatus = result.StatusText;
+            }
+
+            if (result.IsUpdateAvailable)
+            {
+                ShowUpdateDialog(result);
+                return;
+            }
+
+            string message = result.Availability switch
+            {
+                UpdateAvailability.Current =>
+                    $"{BuildInfo.Version} is the newest published build.",
+
+                UpdateAvailability.TurnedOff =>
+                    "The update check is switched off on this machine, so nothing was contacted."
+                        + Environment.NewLine + Environment.NewLine
+                        + $"It is \"checkForUpdates\": false in {AppPaths.SettingsFile}."
+                        + Environment.NewLine + Environment.NewLine
+                        + $"Published builds are at {BuildInfo.ReleasesPage}",
+
+                _ =>
+                    $"Could not check: {result.Problem}"
+                        + Environment.NewLine + Environment.NewLine
+                        + "That is the usual answer on a segment with no route out, and it says "
+                        + "nothing about whether a newer build exists.",
+            };
+
+            MessageBox.Show(
+                this,
+                message,
+                "Check for updates",
+                MessageBoxButton.OK,
+                result.Availability == UpdateAvailability.Failed
+                    ? MessageBoxImage.Warning
+                    : MessageBoxImage.Information);
+        }
+        finally
+        {
+            _checkingForUpdates = false;
+        }
+    }
+
+    /// <summary>
+    /// The status-bar line, which only ever appears when a newer build exists. It re-runs the check
+    /// rather than reusing what startup found: the line may have been sitting there since this
+    /// morning, and the release it names may have been replaced since.
+    /// </summary>
+    private void OnUpdateStatusClicked(object sender, MouseButtonEventArgs e)
+    {
+        OnCheckForUpdates(sender, e);
+        e.Handled = true;
+    }
+
+    private void OnOpenReleases(object sender, RoutedEventArgs e) =>
+        Shell.Open(this, BuildInfo.ReleasesPage);
+
+    /// <summary>
+    /// Opens the folder holding the diagnostic log.
+    ///
+    /// <para>Created if it is not there, because the alternative is Explorer reporting a missing
+    /// folder to somebody who has just been asked to send their log in. An empty folder at least
+    /// says where to look next time.</para>
+    /// </summary>
+    private void OnOpenLogFolder(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Directory.CreateDirectory(AppPaths.Logs);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException
+            or ArgumentException or NotSupportedException)
+        {
+            MessageBox.Show(
+                this,
+                $"{AppPaths.Logs} could not be opened: {ex.Message}",
+                "Diagnostic log",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+
+            return;
+        }
+
+        Shell.Open(this, AppPaths.Logs);
+    }
+
+    /// <summary>
+    /// Which build this is, on the machine it is on. The same string that heads the diagnostic log
+    /// and stamps every project file, so a screenshot of this box and a commissioning record can be
+    /// matched to each other.
+    /// </summary>
+    private void OnAbout(object sender, RoutedEventArgs e) =>
+        MessageBox.Show(
+            this,
+            BuildInfo.Describe()
+                + Environment.NewLine + Environment.NewLine
+                + (BuildInfo.ExecutablePath is { } exe ? exe + Environment.NewLine : string.Empty)
+                + AppPaths.Data
+                + Environment.NewLine + Environment.NewLine
+                + BuildInfo.ReleasesPage
+                + Environment.NewLine + Environment.NewLine
+                + "Built from public specifications: RFC 951, RFC 1542, RFC 2131/2132, and ODVA's "
+                + "published CIP and EtherNet/IP documentation.",
+            "About NetControl",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
+
+    /// <summary>
+    /// Opens the download-and-install dialog, having first worked out what this copy is and
+    /// whether now is a moment it may replace itself.
+    /// </summary>
+    private void ShowUpdateDialog(UpdateResult result)
+    {
+        var dialog = new UpdateWindow(
+            result,
+            InstallLocation.Describe(BuildInfo.ExecutablePath),
+            BlockedReason())
+        {
+            Owner = this,
+        };
+
+        dialog.ShowDialog();
+
+        if (dialog.StatusAfterClose is { } status && ViewModel is { } viewModel)
+        {
+            viewModel.UpdateStatus = status;
+        }
+
+        if (dialog.ShouldShutdown)
+        {
+            // The replacement is already on its way up. Close the ordinary way so the listener and
+            // the project file are released by App.OnExit rather than by the process ending.
+            Application.Current.Shutdown();
+        }
+    }
+
+    /// <summary>
+    /// Why this is not a moment to replace the application, or null.
+    ///
+    /// <para>Both answers are about the same thing: an update ends with this process gone, and
+    /// there are two states in which that is not merely inconvenient. A running listener is a
+    /// socket somebody is watching for a request that may be the one that explains everything, and
+    /// on a real segment it may not come again for a shift. A commissioning operation in flight is
+    /// a write to a live device that has been sent and not yet read back - which is precisely the
+    /// window in which the tool's own record is the only account of what was done.</para>
+    ///
+    /// <para>Neither is a reason to hide the dialog. It says what to stop and why, because "the
+    /// button is greyed out" is how somebody ends up believing the update is broken.</para>
+    /// </summary>
+    private string? BlockedReason()
+    {
+        if (ViewModel is not { } viewModel)
+        {
+            return null;
+        }
+
+        if (viewModel.Plan.IsCommissioning)
+        {
+            return "A device is being commissioned right now. Updating would close NetControl in "
+                + "the middle of a write to live equipment, and the record of what was sent would "
+                + "stop at whatever had been written down so far. Let it finish first.";
+        }
+
+        if (viewModel.IsRunning)
+        {
+            return "The listener is running. Updating closes NetControl, and anything that asks "
+                + "for an address while it is closed is a request nobody sees - which on a real "
+                + "segment may not come again for hours. Stop the listener first.";
+        }
+
+        return null;
     }
 
     private void OnExit(object sender, RoutedEventArgs e) => Close();

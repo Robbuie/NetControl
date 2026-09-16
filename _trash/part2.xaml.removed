@@ -1,0 +1,319 @@
+
+  <!-- ===================================================================== -->
+  <!--  Buttons                                                              -->
+  <!--                                                                       -->
+  <!--  The default is the PDF app's ghost button: quiet, and it stays quiet  -->
+  <!--  when there are six of them in a row - which is exactly what the plan  -->
+  <!--  toolbar is.                                                          -->
+  <!-- ===================================================================== -->
+
+  <Style TargetType="Button">
+    <Setter Property="Background" Value="{DynamicResource bg-2}" />
+    <Setter Property="Foreground" Value="{DynamicResource txt-1}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource line}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="FontFamily" Value="{DynamicResource font}" />
+    <Setter Property="FontSize" Value="{DynamicResource ui-font}" />
+    <Setter Property="Padding" Value="12,0" />
+    <Setter Property="MinWidth" Value="90" />
+    <Setter Property="MinHeight" Value="{DynamicResource field-h}" />
+    <Setter Property="Margin" Value="0,0,6,0" />
+    <Setter Property="SnapsToDevicePixels" Value="True" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Border x:Name="chrome"
+                  Background="{TemplateBinding Background}"
+                  BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="{TemplateBinding BorderThickness}"
+                  CornerRadius="{DynamicResource corner-sm}"
+                  SnapsToDevicePixels="True">
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                              Margin="{TemplateBinding Padding}" RecognizesAccessKey="True" />
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="chrome" Property="Background" Value="{DynamicResource bg-3}" />
+              <Setter Property="Foreground" Value="{DynamicResource txt-0}" />
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+              <Setter TargetName="chrome" Property="Background" Value="{DynamicResource bg-4}" />
+            </Trigger>
+            <!-- Keyboard focus is not the same state as hover, and it has to be visible on its
+                 own: half the actions in this window are reached with Tab on a laptop with no
+                 mouse plugged in. The hairline is the accent; the fill stays as it was. -->
+            <Trigger Property="IsKeyboardFocused" Value="True">
+              <Setter TargetName="chrome" Property="BorderBrush" Value="{DynamicResource accent-line}" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter TargetName="chrome" Property="Background" Value="{DynamicResource bg-1}" />
+              <Setter TargetName="chrome" Property="BorderBrush" Value="{DynamicResource line-soft}" />
+              <Setter Property="Foreground" Value="{DynamicResource txt-2}" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- The accent-filled confirming action. One per dialog at most: a window with three of these
+       has no primary action, it has three shouting buttons. -->
+  <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+    <Setter Property="Background" Value="{DynamicResource accent-fill}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <!-- The one literal in this file. The accent fill is dark enough to carry white text at
+         every one of the six accents, and a token here would make the label track the chrome
+         instead of the fill it actually sits on. -->
+    <Setter Property="Foreground" Value="#ffffff" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Border x:Name="chrome"
+                  Background="{TemplateBinding Background}"
+                  CornerRadius="{DynamicResource corner-sm}"
+                  SnapsToDevicePixels="True">
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                              Margin="{TemplateBinding Padding}" RecognizesAccessKey="True" />
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="chrome" Property="Background" Value="{DynamicResource accent-lift}" />
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+              <Setter TargetName="chrome" Property="Background" Value="{DynamicResource accent-dim}" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter TargetName="chrome" Property="Background" Value="{DynamicResource bg-3}" />
+              <Setter Property="Foreground" Value="{DynamicResource txt-2}" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- Destructive, and it earns an outline rather than a fill it would share with the primary
+       button. In this app that is anything that writes to a device or resets one. -->
+  <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+    <Setter Property="Foreground" Value="{DynamicResource bad}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource bad}" />
+    <Setter Property="Background" Value="Transparent" />
+  </Style>
+
+  <!-- ===================================================================== -->
+  <!--  Check boxes                                                          -->
+  <!--                                                                       -->
+  <!--  Arm serve, Allow reset if needed, Only devices not in the plan. Two   -->
+  <!--  of those three authorise something that touches live hardware, so the -->
+  <!--  checked state is the accent at full strength and not a hint.          -->
+  <!-- ===================================================================== -->
+
+  <Style TargetType="CheckBox">
+    <Setter Property="Foreground" Value="{DynamicResource txt-1}" />
+    <Setter Property="FontFamily" Value="{DynamicResource font}" />
+    <Setter Property="FontSize" Value="{DynamicResource ui-font}" />
+    <Setter Property="SnapsToDevicePixels" Value="True" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="CheckBox">
+          <StackPanel Orientation="Horizontal" Background="Transparent">
+            <Border x:Name="box" Width="15" Height="15" Margin="0,0,7,0"
+                    VerticalAlignment="Center"
+                    Background="{DynamicResource bg-2}"
+                    BorderBrush="{DynamicResource bg-4}"
+                    BorderThickness="1"
+                    CornerRadius="3"
+                    SnapsToDevicePixels="True">
+              <Path x:Name="tick" Visibility="Collapsed"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Stretch="Uniform" Width="9"
+                    Fill="#ffffff"
+                    Data="M0,5 L4,9 L11,0 L9.5,-1.2 L4,6.2 L1.3,3.6 Z" />
+            </Border>
+            <ContentPresenter VerticalAlignment="Center" RecognizesAccessKey="True" />
+          </StackPanel>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsChecked" Value="True">
+              <Setter TargetName="box" Property="Background" Value="{DynamicResource accent}" />
+              <Setter TargetName="box" Property="BorderBrush" Value="{DynamicResource accent}" />
+              <Setter TargetName="tick" Property="Visibility" Value="Visible" />
+            </Trigger>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter Property="Foreground" Value="{DynamicResource txt-0}" />
+              <Setter TargetName="box" Property="BorderBrush" Value="{DynamicResource accent-line}" />
+            </Trigger>
+            <Trigger Property="IsKeyboardFocused" Value="True">
+              <Setter TargetName="box" Property="BorderBrush" Value="{DynamicResource accent}" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter Property="Foreground" Value="{DynamicResource txt-2}" />
+              <Setter TargetName="box" Property="Background" Value="{DynamicResource bg-1}" />
+              <Setter TargetName="box" Property="BorderBrush" Value="{DynamicResource line}" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- ===================================================================== -->
+  <!--  Text fields                                                          -->
+  <!-- ===================================================================== -->
+
+  <Style TargetType="TextBox">
+    <Setter Property="Background" Value="{DynamicResource bg-2}" />
+    <Setter Property="Foreground" Value="{DynamicResource txt-0}" />
+    <Setter Property="CaretBrush" Value="{DynamicResource txt-0}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource line}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="FontFamily" Value="{DynamicResource font}" />
+    <Setter Property="FontSize" Value="{DynamicResource ui-font}" />
+    <Setter Property="Padding" Value="6,0" />
+    <Setter Property="SelectionBrush" Value="{DynamicResource accent}" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="TextBox">
+          <Border x:Name="chrome"
+                  Background="{TemplateBinding Background}"
+                  BorderBrush="{TemplateBinding BorderBrush}"
+                  BorderThickness="{TemplateBinding BorderThickness}"
+                  CornerRadius="{DynamicResource corner-sm}">
+            <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}"
+                          VerticalAlignment="Center" />
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+              <Setter TargetName="chrome" Property="BorderBrush" Value="{DynamicResource accent}" />
+            </Trigger>
+            <Trigger Property="IsReadOnly" Value="True">
+              <Setter Property="Foreground" Value="{DynamicResource txt-1}" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter TargetName="chrome" Property="Background" Value="{DynamicResource bg-1}" />
+              <Setter Property="Foreground" Value="{DynamicResource txt-2}" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- ===================================================================== -->
+  <!--  Combo box                                                            -->
+  <!--                                                                       -->
+  <!--  The adapter picker is the most important control in the window: it    -->
+  <!--  decides which wire the tool listens on, and its items are two lines   -->
+  <!--  each. So the popup is templated rather than left to the system.       -->
+  <!-- ===================================================================== -->
+
+  <Style TargetType="ComboBoxItem">
+    <Setter Property="Foreground" Value="{DynamicResource txt-1}" />
+    <Setter Property="Padding" Value="8,5" />
+    <Setter Property="SnapsToDevicePixels" Value="True" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="ComboBoxItem">
+          <Border x:Name="chrome" Background="Transparent"
+                  CornerRadius="{DynamicResource corner-sm}"
+                  Padding="{TemplateBinding Padding}">
+            <ContentPresenter />
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsHighlighted" Value="True">
+              <Setter TargetName="chrome" Property="Background" Value="{DynamicResource bg-3}" />
+              <Setter Property="Foreground" Value="{DynamicResource txt-0}" />
+            </Trigger>
+            <Trigger Property="IsSelected" Value="True">
+              <Setter TargetName="chrome" Property="Background" Value="{DynamicResource accent-soft}" />
+              <Setter Property="Foreground" Value="{DynamicResource accent-on-chrome}" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style TargetType="ComboBox">
+    <Setter Property="Background" Value="{DynamicResource bg-2}" />
+    <Setter Property="Foreground" Value="{DynamicResource txt-0}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource line}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="FontFamily" Value="{DynamicResource font}" />
+    <Setter Property="FontSize" Value="{DynamicResource ui-font}" />
+    <Setter Property="MinHeight" Value="{DynamicResource field-h}" />
+    <Setter Property="Padding" Value="8,0" />
+    <Setter Property="SnapsToDevicePixels" Value="True" />
+    <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="ComboBox">
+          <Grid>
+            <Border x:Name="chrome"
+                    Background="{TemplateBinding Background}"
+                    BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}"
+                    CornerRadius="{DynamicResource corner-sm}" />
+
+            <!-- The whole field is the button. A separate drop-down square is Win32 furniture
+                 and it makes the field look shorter than it is. -->
+            <ToggleButton Background="Transparent" BorderThickness="0"
+                          Focusable="False" ClickMode="Press"
+                          IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+              <ToggleButton.Template>
+                <ControlTemplate TargetType="ToggleButton">
+                  <Border Background="Transparent" />
+                </ControlTemplate>
+              </ToggleButton.Template>
+            </ToggleButton>
+
+            <ContentPresenter x:Name="selected"
+                              Margin="{TemplateBinding Padding}"
+                              HorizontalAlignment="Left" VerticalAlignment="Center"
+                              IsHitTestVisible="False"
+                              Content="{TemplateBinding SelectionBoxItem}"
+                              ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}" />
+
+            <Path x:Name="arrow" HorizontalAlignment="Right" VerticalAlignment="Center"
+                  Margin="0,0,9,0" Width="8" Stretch="Uniform"
+                  IsHitTestVisible="False"
+                  Fill="{DynamicResource txt-2}"
+                  Data="M0,0 L8,0 L4,5 Z" />
+
+            <Popup x:Name="PART_Popup" AllowsTransparency="True" Focusable="False"
+                   IsOpen="{TemplateBinding IsDropDownOpen}"
+                   Placement="Bottom" PopupAnimation="None" VerticalOffset="3">
+              <Border MinWidth="{TemplateBinding ActualWidth}"
+                      MaxHeight="{TemplateBinding MaxDropDownHeight}"
+                      Background="{DynamicResource bg-2}"
+                      BorderBrush="{DynamicResource bg-4}"
+                      BorderThickness="1"
+                      CornerRadius="{DynamicResource corner-sm}"
+                      Padding="3">
+                <ScrollViewer>
+                  <ItemsPresenter />
+                </ScrollViewer>
+              </Border>
+            </Popup>
+          </Grid>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="chrome" Property="BorderBrush" Value="{DynamicResource bg-4}" />
+              <Setter TargetName="arrow" Property="Fill" Value="{DynamicResource txt-1}" />
+            </Trigger>
+            <Trigger Property="IsDropDownOpen" Value="True">
+              <Setter TargetName="chrome" Property="BorderBrush" Value="{DynamicResource accent}" />
+            </Trigger>
+            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+              <Setter TargetName="chrome" Property="BorderBrush" Value="{DynamicResource accent}" />
+            </Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+              <Setter TargetName="chrome" Property="Background" Value="{DynamicResource bg-1}" />
+              <Setter Property="Foreground" Value="{DynamicResource txt-2}" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>

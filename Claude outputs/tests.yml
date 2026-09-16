@@ -1,0 +1,38 @@
+name: Tests
+
+# The release workflow only runs on a tag, so without this nothing runs the suite on the way in.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    # Windows, and not negotiable. NetControl.App is net10.0-windows because WPF requires it, and
+    # NetControl.Tests targets the same framework so it can construct the view models - so the whole
+    # solution only builds here. Everything the engine does is Windows-specific anyway: IP_PKTINFO,
+    # GetExtendedUdpTable, GetIpNetTable and the firewall check are all P/Invoke into Windows.
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore NetControl.sln
+
+      # Separate from the test step so that a warning promoted to an error in src/ reads as a build
+      # failure rather than as a failing test. TreatWarningsAsErrors is on for src/ and off for
+      # spikes, tools and tests - see Directory.Build.targets.
+      - name: Build
+        run: dotnet build NetControl.sln -c Release --no-restore
+
+      # NETCONTROL_WIRE_SERVE is deliberately not set. The one test that broadcasts on a real
+      # adapter stays opt-in, and a hosted runner is no place to find out what answers it.
+      - name: Test
+        run: dotnet test NetControl.sln -c Release --no-build --nologo

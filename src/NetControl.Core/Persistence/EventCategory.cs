@@ -22,6 +22,16 @@ public enum EventCategory
     /// <summary>The application itself: project opened, plan imported, settings changed.</summary>
     App,
 
+    /// <summary>
+    /// TFTP: requests observed on UDP/69, refusals, transfers.
+    ///
+    /// <para>Added after the first four. A project file written by an older build has never seen
+    /// this name, and does not need to: the reader maps a category it does not recognise to
+    /// <see cref="Other"/> rather than refusing the file, which is the case this enum's last
+    /// member was written for and the first time it has been used.</para>
+    /// </summary>
+    Tftp,
+
     /// <summary>A category written by a build newer than this one.</summary>
     Other,
 }

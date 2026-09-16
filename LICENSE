@@ -1,0 +1,41 @@
+Copyright (c) 2026 Robbuie. All rights reserved.
+
+This source code is published so that the tool it produces can be read, audited and downloaded.
+It is not open source. No licence is granted to copy, modify, distribute, sublicense, or create
+derivative works from it, in whole or in part, except as permitted below or by written permission
+from the copyright holder.
+
+Permitted without asking:
+
+  - Downloading and running the published builds.
+  - Reading this source code, and quoting short excerpts of it when reporting a problem or
+    suggesting a change to this project.
+  - Forking this repository on GitHub for the sole purpose of proposing a change back to it.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+This tool writes configuration to live industrial equipment. That warranty disclaimer is not
+boilerplate: read the safety rules in CLAUDE.md, and satisfy yourself about what a build does
+before pointing it at a plant network.
+
+---
+
+This project is built from public specifications - RFC 951, RFC 1542, RFC 2131, RFC 2132, RFC 1350,
+RFC 2347/2348/2349, RFC 7440, and ODVA's published CIP and EtherNet/IP documentation. No part of it
+is derived from decompiling the Rockwell BOOTP/DHCP tool or from Wireshark's GPL-licensed
+dissectors.
+
+Third-party components are used under their own licences:
+
+  - CommunityToolkit.Mvvm       - MIT
+  - Microsoft.Data.Sqlite       - MIT
+  - SQLitePCLRaw               - Apache-2.0
+  - SQLite itself               - public domain
+  - xUnit (tests only)          - Apache-2.0
+
+src/NetControl.Core/Oui/oui.bin is a repacking of the IEEE public MA-L, MA-M, MA-S and IAB
+registries, which IEEE publishes for public use.
