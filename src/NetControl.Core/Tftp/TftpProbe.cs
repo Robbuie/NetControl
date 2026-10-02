@@ -114,9 +114,14 @@ public static class TftpProbe
 
         if (answer.Message is TftpErrorMessage refused)
         {
-            (string summary, string? remediation) = refused.Explain();
-            findings.Add($"The server refused the write: {summary}");
-            return Failed(options, requested, findings, $"The server refused to accept '{options.FileName}': {summary}", remediation)
+            (string refusal, string? refusalRemedy) = refused.Explain();
+            findings.Add($"The server refused the write: {refusal}");
+            return Failed(
+                    options,
+                    requested,
+                    findings,
+                    $"The server refused to accept '{options.FileName}': {refusal}",
+                    refusalRemedy)
                 with
                 {
                     AnsweredFrom = peer,
