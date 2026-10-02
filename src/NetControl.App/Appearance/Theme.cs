@@ -18,7 +18,7 @@ namespace NetControl.App.Appearance;
 /// <para><b>The three axes are independent, and that is deliberate.</b> A theme sets the greys.
 /// The accent sets one colour. The density sets the chrome metrics. Anything that mixes them - a
 /// theme that hardcodes a red, a density that also shifts a colour - means the combinations
-/// multiply and half of them look wrong. There are 5 x 6 x 3 = 90 combinations here and none of
+/// multiply and half of them look wrong. There are 11 x 6 x 3 = 198 combinations here and none of
 /// them needs its own block.</para>
 ///
 /// <para><b>The accent is one channel triple, not a hex.</b> Every tint of it - the fill behind a
@@ -78,7 +78,7 @@ public static class Theme
         ["mono"] = "Cascadia Mono, Consolas",
     };
 
-    /// <summary>The five themes. A theme restates greys and nothing else - see the class remarks.</summary>
+    /// <summary>The eleven themes. A theme restates greys and nothing else - see the class remarks.</summary>
     public static IReadOnlyDictionary<string, AppearanceOption> Themes { get; } =
         new Dictionary<string, AppearanceOption>(StringComparer.Ordinal)
         {
@@ -145,6 +145,91 @@ public static class Theme
                     ["info"] = "#7cc4ff", ["good"] = "#5ee0a0", ["warn"] = "#ffd75e",
                     ["bad"] = "#ff8f8f", ["sel"] = "#7cc4ff",
                     ["page-ring"] = "#59ffffff",
+                }),
+
+            // Six more, ported from File Manager 0.48 (app/theme/tokens.py), where the family look
+            // is allowed to grow first. The greys, txt and status colours are File Manager's value
+            // for value; canvas-bg, bad and page-ring do not exist there and are this app's own,
+            // chosen the same way as the five above - a canvas a step past bg-0, and a red that
+            // reads as a row wash and as text on that theme's bg-2.
+            ["graphite"] = new(
+                "graphite", "Graphite", "True black, for an OLED panel or a dim room.",
+                // The steps between the greys are smaller than Dark's because on black a small
+                // step already reads.
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["bg-0"] = "#000000", ["bg-1"] = "#070708", ["bg-2"] = "#0e0e11",
+                    ["bg-3"] = "#18181c", ["bg-4"] = "#24242a", ["canvas-bg"] = "#000000",
+                    ["line"] = "#1f1f24", ["line-soft"] = "#151518",
+                    ["txt-0"] = "#ededf0", ["txt-1"] = "#a6a6ae", ["txt-2"] = "#77777f",
+                    ["info"] = "#5ab0ff", ["sel"] = "#5ab0ff",
+                }),
+
+            ["control"] = new(
+                "control", "Control room", "Calm mid greys after the ISA-101 HMI screens; colour only where somebody is needed.",
+                // The one theme drawn from this app's own world rather than a drawing office: an
+                // ISA-101 high-performance HMI keeps the screen grey so that the only colour on it
+                // is a fault. Which is exactly how the device table wants to be read. The status
+                // colours are darker than the other themes' because they sit on a light grey.
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["bg-0"] = "#b7babe", ["bg-1"] = "#c6c9cc", ["bg-2"] = "#dcdee1",
+                    ["bg-3"] = "#cdd0d4", ["bg-4"] = "#b4b8be", ["canvas-bg"] = "#a9adb2",
+                    ["line"] = "#a9aeb4", ["line-soft"] = "#c3c7cc",
+                    ["txt-0"] = "#14181c", ["txt-1"] = "#343a41", ["txt-2"] = "#535a63",
+                    ["info"] = "#2f5fa8", ["good"] = "#2b8a55", ["warn"] = "#a97a08",
+                    ["bad"] = "#b0241b", ["sel"] = "#2f5fa8",
+                    ["page-ring"] = "#1e000000",
+                }),
+
+            ["phosphor"] = new(
+                "phosphor", "Phosphor", "Green on black. Pairs with the Field green accent.",
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["bg-0"] = "#020604", ["bg-1"] = "#051009", ["bg-2"] = "#08150d",
+                    ["bg-3"] = "#0e2216", ["bg-4"] = "#163222", ["canvas-bg"] = "#000302",
+                    ["line"] = "#13301f", ["line-soft"] = "#0d2116",
+                    ["txt-0"] = "#b4ffc8", ["txt-1"] = "#70dc97", ["txt-2"] = "#4c9f6b",
+                    ["info"] = "#39ff88", ["good"] = "#39ff88", ["warn"] = "#e6d34a",
+                    ["bad"] = "#ff6b5e", ["sel"] = "#39ff88",
+                }),
+
+            ["dusk"] = new(
+                "dusk", "Dusk", "Warm dark browns, for the end of a long shift.",
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["bg-0"] = "#14100e", ["bg-1"] = "#1b1613", ["bg-2"] = "#221c18",
+                    ["bg-3"] = "#2c2420", ["bg-4"] = "#3a302a", ["canvas-bg"] = "#0e0b09",
+                    ["line"] = "#322923", ["line-soft"] = "#28211c",
+                    ["txt-0"] = "#f2e7db", ["txt-1"] = "#c3b4a4", ["txt-2"] = "#928372",
+                    ["info"] = "#6fb2ff", ["good"] = "#5cc98b", ["bad"] = "#ff7b6b",
+                    ["sel"] = "#6fb2ff",
+                }),
+
+            ["frost"] = new(
+                "frost", "Frost", "Cool light, steel-blue greys: brighter than Paper, softer than Light.",
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["bg-0"] = "#dee5ed", ["bg-1"] = "#ecf1f6", ["bg-2"] = "#f8fbfd",
+                    ["bg-3"] = "#e5ecf3", ["bg-4"] = "#d1dbe6", ["canvas-bg"] = "#c9d3de",
+                    ["line"] = "#cdd7e2", ["line-soft"] = "#e1e8ef",
+                    ["txt-0"] = "#131f2b", ["txt-1"] = "#405066", ["txt-2"] = "#67768c",
+                    ["info"] = "#3b7dd8", ["good"] = "#2c9c66", ["warn"] = "#b9800e",
+                    ["bad"] = "#b3261e", ["sel"] = "#3b7dd8",
+                    ["page-ring"] = "#1e000000",
+                }),
+
+            ["ink"] = new(
+                "ink", "Ink", "Black on white like a printed drawing, with every border a real line.",
+                new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["bg-0"] = "#ebebe9", ["bg-1"] = "#f7f7f5", ["bg-2"] = "#ffffff",
+                    ["bg-3"] = "#efefec", ["bg-4"] = "#d4d4d0", ["canvas-bg"] = "#d6d6d3",
+                    ["line"] = "#8c8c88", ["line-soft"] = "#c6c6c2",
+                    ["txt-0"] = "#0a0a0a", ["txt-1"] = "#2d2d2d", ["txt-2"] = "#5a5a5a",
+                    ["info"] = "#0a58ca", ["good"] = "#1d8a4c", ["warn"] = "#a8700f",
+                    ["bad"] = "#b00020", ["sel"] = "#0a58ca",
+                    ["page-ring"] = "#1e000000",
                 }),
         };
 

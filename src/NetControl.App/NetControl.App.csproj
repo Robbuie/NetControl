@@ -29,6 +29,11 @@
     <RootNamespace>NetControl.App</RootNamespace>
     <AssemblyName>netcontrol</AssemblyName>
 
+    <!-- The family mark: a dark tile, light cards, one stroke of the accent. Drawn by
+         tools/icon.py and committed, so a build never needs Python. Embedding it in the exe is
+         also what every window, the taskbar and the installer's uninstall entry pick up. -->
+    <ApplicationIcon>Assets\NetControl.ico</ApplicationIcon>
+
     <!-- Packaging is a publish concern and stays out of the project file on purpose. Setting
          SelfContained and PublishSingleFile here would pin a RuntimeIdentifier onto every
          `dotnet build` and `dotnet test`, which makes an ordinary edit-compile loop pull a whole

@@ -1,6 +1,8 @@
-name: Build and release
+name: release
 
-# Tag-driven: bump VersionPrefix in Directory.Build.props, commit, then
+# Tag a version, get an installer. Same shape as Redline PDF, File Manager and File Compare.
+#
+#   (bump VersionPrefix in Directory.Build.props, and add the version's entry to CHANGELOG.md)
 #   git tag v0.6.0 && git push origin v0.6.0
 on:
   push:
@@ -92,18 +94,50 @@ jobs:
             artifacts/NetControl-${{ steps.ver.outputs.version }}/*
             dist_installer/*
 
-      # Both ways of getting it, on the same release. The .sha256 files go up too: a copy that
-      # arrived by email or on a USB stick is exactly the case they exist for, and that is how most
-      # of these reach a plant laptop.
-      - name: Publish the release
+      # The release page says what changed, taken from the CHANGELOG.md entry that was written
+      # anyway rather than typed a second time. If the slice comes back empty - a heading renamed, a
+      # version not in the file - the release still goes out with a one-liner, because a release
+      # that fails to publish over its own notes is a worse outcome than a thin release page.
+      - name: Release notes
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            dist_installer/NetControl-Setup-${{ steps.ver.outputs.version }}.exe
-            dist_installer/NetControl-Setup-${{ steps.ver.outputs.version }}.exe.sha256
-            artifacts/NetControl-${{ steps.ver.outputs.version }}/NetControl.exe
-            artifacts/NetControl-${{ steps.ver.outputs.version }}/NetControl.exe.sha256
-            artifacts/NetControl-${{ steps.ver.outputs.version }}/version.json
-          generate_release_notes: true
-          name: NetControl ${{ steps.ver.outputs.version }}
+        shell: pwsh
+        run: |
+          $v = "${{ steps.ver.outputs.version }}"
+          $text = Get-Content CHANGELOG.md -Raw -Encoding utf8
+          $pattern = '(?ms)^## \[?' + [regex]::Escape($v) + '\b[^\n]*\n(.*?)(?=^## |\z)'
+          $m = [regex]::Match($text, $pattern)
+          $notes = if ($m.Success) { $m.Groups[1].Value.Trim() } else { '' }
+          if (-not $notes) { $notes = "NetControl $v - see CHANGELOG.md" }
+          Set-Content -Path notes.md -Value $notes -Encoding utf8
+          Get-Content notes.md
+
+      # Published by gh, in one call, with the asset list stated here - not by a release action.
+      # The lesson from Redline PDF: letting a publisher decide what to upload had two jobs race to
+      # create one release, the update metadata never arrived, and the run still exited green.
+      #
+      # Both ways of getting it go on the same release. The .sha256 files go up too, and they are
+      # load-bearing: the in-app updater refuses an asset with no checksum beside it, so a release
+      # without them is one no installed copy will ever update to. A copy that arrived by email or
+      # on a USB stick is the other case they exist for, and that is how most of these reach a
+      # plant laptop.
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $v = "${{ steps.ver.outputs.version }}"
+          $tag = "${{ github.ref_name }}"
+          # A re-run of the same tag replaces the release rather than failing on it. The tag is left
+          # alone - it is what triggered this run.
+          gh release delete $tag --yes 2>$null
+          $global:LASTEXITCODE = 0
+          gh release create $tag `
+            --title "NetControl $v" `
+            --notes-file notes.md `
+            "dist_installer/NetControl-Setup-$v.exe" `
+            "dist_installer/NetControl-Setup-$v.exe.sha256" `
+            "artifacts/NetControl-$v/NetControl.exe" `
+            "artifacts/NetControl-$v/NetControl.exe.sha256" `
+            "artifacts/NetControl-$v/version.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

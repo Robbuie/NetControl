@@ -1,6 +1,6 @@
 # Packaging and releasing NetControl
 
-Same shape as the DWG viewer and the Redline PDF app: a public GitHub repository, a per-user
+Same shape as Redline PDF, File Manager and File Compare: a public GitHub repository, a per-user
 installer built by Inno Setup, and a release cut by pushing a tag.
 
 ## One-time setup
@@ -15,7 +15,7 @@ and `netcontrol` is the right name because the product outgrew BOOTP at the poin
 scan.
 
 ```powershell
-cd "C:\Users\Rokray.ENCORE\Projects\BootP.DHCP"
+cd "C:\Users\rjokr\Projects\BootP.DHCP"
 git add .
 git commit -m "NetControl"
 git branch -M main
@@ -23,7 +23,8 @@ git remote add origin https://github.com/Robbuie/netcontrol.git
 git push -u origin main
 ```
 
-**3. Build tools, only if you want to build the installer locally.** GitHub Actions needs none of
+**3. Build tools, only if you want to build the installer locally.** (Python with Pillow is only
+needed to redraw the icon - `python tools/icon.py` - and its output is committed.) GitHub Actions needs none of
 this.
 
 - Inno Setup 6 - https://jrsoftware.org/isdl.php
@@ -33,15 +34,21 @@ this.
 
 ```powershell
 # 1. Bump the version. One place: VersionPrefix in Directory.Build.props.
-# 2. Commit it.
-git commit -am "v0.6.0"
+# 2. Add a "## 0.6.0 - <what it is>" section to the top of CHANGELOG.md.
+# 3. Commit both, named the way the other three apps name theirs.
+git commit -am "0.6.0 - <what it is>"
 git tag v0.6.0
-git push && git push --tags
+git push --follow-tags
 ```
 
-The **Build and release** workflow runs the suite, publishes the single self-contained exe, wraps it
-with Inno Setup, and attaches both to a GitHub release along with their SHA256 files and
-`version.json`.
+`.github/workflows/release.yml` runs the suite, publishes the single self-contained exe, wraps it
+with Inno Setup, and publishes a GitHub release with `gh` - the installer, the portable exe, a
+SHA256 file beside each, and `version.json`. The release page's text is that version's section of
+`CHANGELOG.md`. `.github/workflows/verify.yml` runs the build and the tests on every push to `main`.
+
+**The build tool builds and `gh` publishes, never both.** Same rule as the other three apps, and
+for the reason Redline PDF found out the hard way: a publisher left to decide what to upload raced
+itself, the update metadata never arrived, and the run still exited green.
 
 **It fails the build if the tag and `VersionPrefix` disagree.** That mismatch would otherwise ship
 an installer whose filename, status bar and update check all claim different versions - and this

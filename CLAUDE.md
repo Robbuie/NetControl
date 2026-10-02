@@ -34,7 +34,9 @@ Keep dependencies few. Every package added is a package someone has to justify t
 
 ```
 NetControl.sln                solution - spikes are deliberately NOT in it; tools/ is
-.github/workflows/            tests on every push; release.yml builds and publishes on a v* tag
+.github/workflows/            verify.yml on every push; release.yml builds and publishes on a v* tag
+CHANGELOG.md                  one section per version - release.yml copies it onto the release page
+assets/icon.png               the family mark, for the README; drawn by tools/icon.py
 installer/NetControl.iss      Inno Setup, per-user, no admin - see RELEASING.md
 src/NetControl.Core/          network engine - MUST NOT reference any UI assembly
     Ipv4Subnet.cs             checked address + mask: prefix, network, contains
@@ -62,6 +64,7 @@ src/NetControl.DeviceSim/     fake EtherNet/IP device for hardware-free developm
 tests/NetControl.Tests/       xUnit
 tools/NetControl.OuiPacker/   refreshes src/NetControl.Core/Oui/oui.bin; not shipped
 tools/publish.ps1             the exe, and with -Installer the setup exe too
+tools/icon.py                 redraws the icon (src/NetControl.App/Assets/NetControl.ico) - a chore
 spikes/                       not part of the solution build
     Spike1/Spike2             Phase 0 throwaways, self-contained
     Spike3.TftpWatch          a door into Core's TFTP watch, until the app has a tab

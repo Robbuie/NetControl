@@ -23,7 +23,7 @@
 
 #define AppName    "NetControl"
 #define AppExeName "NetControl.exe"
-#define AppPublisher "Encore"
+#define AppPublisher "Robbuie"
 
 [Setup]
 ; Keep this GUID forever - it is how Windows and any future update recognise an existing install
@@ -52,6 +52,7 @@ OutputBaseFilename=NetControl-Setup-{#AppVersion}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=..\src\NetControl.App\Assets\NetControl.ico
 ArchitecturesInstallIn64BitMode=x64compatible
 ArchitecturesAllowed=x64compatible
 

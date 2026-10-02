@@ -1,6 +1,8 @@
-name: Tests
-
+# The checks that can run without a person watching a window. Same name and shape as the
+# verify.yml in Redline PDF, File Manager and File Compare.
+#
 # The release workflow only runs on a tag, so without this nothing runs the suite on the way in.
+name: verify
 on:
   push:
     branches: [main]
