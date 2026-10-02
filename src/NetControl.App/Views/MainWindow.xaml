@@ -697,6 +697,190 @@
           </DockPanel>
         </TabItem>
 
+        <!-- ============================== TFTP backup ==============================
+             PLAN-TFTP.md parts E1, E3 and E5. A FANUC image backup over Ethernet is a BOOTP request
+             followed by a TFTP write request, and when it "never starts" nobody can say which half
+             broke. This tab watches the second half and, together with the BOOTP listener at the top
+             of the window, says which step the backup stopped at. Watching refuses every request on
+             purpose: it records what the controller asked for and never receives the image. -->
+        <TabItem Header="TFTP backup">
+          <DockPanel>
+
+            <!-- Where this PC stands, then the watch. The vantage tick changes how UDP/69 is graded:
+                 on the backup server, nothing holding the port is the fault; on a laptop it is what
+                 lets the watch bind. -->
+            <WrapPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="10,8,10,6">
+              <CheckBox Content="This PC is the backup server"
+                        VerticalAlignment="Center"
+                        Margin="0,0,16,0"
+                        IsChecked="{Binding Tftp.IsBackupServer}"
+                        ToolTip="Tick on the PC the robots back up to. Leave clear on a laptop plugged into the robot network." />
+
+              <TextBlock Text="Backup folder" VerticalAlignment="Center" Margin="0,0,6,0" />
+              <TextBox Width="240"
+                       VerticalAlignment="Center"
+                       Text="{Binding Tftp.RootFolder, UpdateSourceTrigger=PropertyChanged}"
+                       ToolTip="The TFTP server's root folder. Checked by writing a small probe file into it and deleting it again." />
+              <Button Content="Browse..." Margin="6,0,0,0" Click="OnBrowseTftpRoot" />
+              <Button Content="Check folder" Command="{Binding Tftp.CheckRootCommand}" />
+
+              <Border Style="{StaticResource ToolbarSeparator}" Height="20" />
+
+              <!-- Armed separately from being started, like Serve: a refusal is a transmission. -->
+              <CheckBox Content="Arm"
+                        VerticalAlignment="Center"
+                        Margin="0,0,10,0"
+                        IsChecked="{Binding Tftp.IsWatchArmed}"
+                        ToolTip="The watch answers each request with a refusal, on the adapter selected at the top of the window only. Stop the real TFTP server first - the watch will not share UDP/69 with it." />
+              <Button Content="Watch TFTP" Command="{Binding Tftp.StartWatchCommand}" />
+              <Button Content="Stop" Command="{Binding Tftp.StopWatchCommand}" />
+              <Button Content="Re-check" Command="{Binding Tftp.RefreshCommand}"
+                      ToolTip="Who holds UDP/69 on this PC, whether the firewall lets it in, and the backup folder." />
+              <Button Content="Clear" Command="{Binding Tftp.ClearCommand}"
+                      ToolTip="Empties the list and starts the verdict over, for the next attempt." />
+            </WrapPanel>
+
+            <!-- This PC, graded the way the interface bar grades UDP/67 - but on its own row, because
+                 the same fact (a TFTP server holding the port) is good news here and bad news there. -->
+            <ItemsControl DockPanel.Dock="Top" ItemsSource="{Binding Tftp.Checks}" Margin="12,0,10,6">
+              <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                  <WrapPanel Orientation="Horizontal" />
+                </ItemsPanelTemplate>
+              </ItemsControl.ItemsPanel>
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <StackPanel Orientation="Horizontal" Margin="0,0,18,0" ToolTip="{Binding Detail}">
+                    <Ellipse Width="9" Height="9" Margin="0,0,5,0" VerticalAlignment="Center"
+                             Fill="{Binding State, Converter={StaticResource ReadinessBrush}}" />
+                    <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" Text="{Binding Name}" />
+                    <TextBlock VerticalAlignment="Center" Margin="6,0,0,0"
+                               MaxWidth="420"
+                               TextTrimming="CharacterEllipsis"
+                               Foreground="{DynamicResource txt-2}"
+                               Text="{Binding Summary}" />
+                  </StackPanel>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!-- The verdict. One line per step, each grey until it has actually been seen, and above
+                 them the one sentence that names the earliest step not known to have worked. -->
+            <Border DockPanel.Dock="Top"
+                    Margin="10,0,10,8"
+                    Padding="12,10"
+                    Background="{DynamicResource bg-2}"
+                    BorderBrush="{DynamicResource line}"
+                    BorderThickness="1"
+                    CornerRadius="{DynamicResource corner}">
+              <StackPanel>
+                <Grid>
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <Ellipse Grid.Column="0" Width="14" Height="14" Margin="0,2,8,0" VerticalAlignment="Top"
+                           Fill="{Binding Tftp.Overall, Converter={StaticResource ReadinessBrush}}" />
+                  <TextBlock Grid.Column="1" FontWeight="SemiBold" TextWrapping="Wrap"
+                             Text="{Binding Tftp.Verdict}" />
+                </Grid>
+
+                <TextBlock Margin="22,4,0,0"
+                           Style="{StaticResource Muted}"
+                           TextWrapping="Wrap"
+                           Text="{Binding Tftp.VerdictRemediation}"
+                           Visibility="{Binding Tftp.VerdictRemediation, Converter={StaticResource NotNullToVisible}}" />
+
+                <ItemsControl ItemsSource="{Binding Tftp.Steps}" Margin="22,8,0,0">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Grid Margin="0,2" ToolTip="{Binding Detail}">
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="Auto" />
+                          <ColumnDefinition Width="170" />
+                          <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Ellipse Grid.Column="0" Width="9" Height="9" Margin="0,4,6,0" VerticalAlignment="Top"
+                                 Fill="{Binding State, Converter={StaticResource ReadinessBrush}}" />
+                        <TextBlock Grid.Column="1" FontWeight="SemiBold" Text="{Binding Name}" />
+                        <TextBlock Grid.Column="2" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource txt-1}"
+                                   Text="{Binding Summary}" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
+
+            <Border DockPanel.Dock="Top"
+                    Style="{StaticResource FaultNotice}"
+                    Margin="10,0,10,8"
+                    Visibility="{Binding Tftp.ErrorMessage, Converter={StaticResource NotNullToVisible}}">
+              <StackPanel>
+                <TextBlock Style="{StaticResource FaultText}" Text="{Binding Tftp.ErrorMessage}" />
+                <TextBlock Style="{StaticResource FaultText}" Margin="0,4,0,0"
+                           Visibility="{Binding Tftp.ErrorRemediation, Converter={StaticResource NotNullToVisible}}"
+                           Text="{Binding Tftp.ErrorRemediation}" />
+              </StackPanel>
+            </Border>
+
+            <!-- Every file request exactly as the controller sent it. The filename is the payload:
+                 no server log shows the name it refused, and a wrong path is a five-second fix that
+                 otherwise costs an afternoon. -->
+            <ListView ItemsSource="{Binding Tftp.Requests}"
+                      Margin="10,0,10,8"
+                      ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                      VirtualizingPanel.IsVirtualizing="True"
+                      VirtualizingPanel.VirtualizationMode="Recycling">
+
+              <ListView.ItemContainerStyle>
+                <!-- BasedOn for the same reason as the other two lists. -->
+                <Style TargetType="ListViewItem" BasedOn="{StaticResource {x:Type ListViewItem}}">
+                  <Setter Property="ToolTip" Value="{Binding Tooltip}" />
+                  <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                  <Style.Triggers>
+                    <DataTrigger Binding="{Binding Kind}" Value="Warning">
+                      <Setter Property="Background" Value="{DynamicResource row-warn}" />
+                      <Setter Property="Foreground" Value="{DynamicResource warn}" />
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Kind}" Value="Fault">
+                      <Setter Property="Background" Value="{DynamicResource row-bad}" />
+                      <Setter Property="Foreground" Value="{DynamicResource bad}" />
+                    </DataTrigger>
+                  </Style.Triggers>
+                </Style>
+              </ListView.ItemContainerStyle>
+
+              <ListView.View>
+                <GridView>
+                  <GridViewColumn Header="Time" Width="92" DisplayMemberBinding="{Binding TimeText}" />
+                  <GridViewColumn Header="Request" Width="110" DisplayMemberBinding="{Binding OperationText}" />
+                  <GridViewColumn Header="File, exactly as sent" Width="220">
+                    <GridViewColumn.CellTemplate>
+                      <DataTemplate>
+                        <TextBlock Style="{StaticResource MonoText}" Text="{Binding FileName}" />
+                      </DataTemplate>
+                    </GridViewColumn.CellTemplate>
+                  </GridViewColumn>
+                  <GridViewColumn Header="Mode" Width="70" DisplayMemberBinding="{Binding ModeText}" />
+                  <GridViewColumn Header="From" Width="150">
+                    <GridViewColumn.CellTemplate>
+                      <DataTemplate>
+                        <TextBlock Style="{StaticResource MonoText}" Text="{Binding SourceText}" />
+                      </DataTemplate>
+                    </GridViewColumn.CellTemplate>
+                  </GridViewColumn>
+                  <GridViewColumn Header="Arrived on" Width="160" DisplayMemberBinding="{Binding AdapterText}" />
+                  <GridViewColumn Header="Options" Width="160" DisplayMemberBinding="{Binding OptionsText}" />
+                  <GridViewColumn Header="Repeats" Width="66" DisplayMemberBinding="{Binding RepeatText}" />
+                  <GridViewColumn Header="What happened" Width="460" DisplayMemberBinding="{Binding Message}" />
+                </GridView>
+              </ListView.View>
+            </ListView>
+          </DockPanel>
+        </TabItem>
+
       </TabControl>
     </Grid>
 

@@ -89,6 +89,9 @@ public sealed class AppHost : IDisposable
     {
         ViewModel.RefreshAdapters();
         await ViewModel.RefreshEnvironmentCommand.ExecuteAsync(null).ConfigureAwait(true);
+
+        // UDP/69 too, so the TFTP tab says who holds the port before anybody opens it.
+        await ViewModel.Tftp.RefreshCommand.ExecuteAsync(null).ConfigureAwait(true);
         await CheckForUpdatesAsync().ConfigureAwait(true);
     }
 

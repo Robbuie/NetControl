@@ -16,7 +16,8 @@ ported logic.
 `spikes/Spike3.TftpWatch` is how any of it is run: **nothing in `NetControl.App` references
 `NetControl.Core.Tftp` yet**, so the spike is the whole surface, and BENCH.md Run 6b uses it.
 
-Still to do: E3's Accept mode, E4's probe, E1's second bar row in the app, and E5's verdict panel.
+Still to do: E3's Accept mode and E4's probe. **E1's UDP/69 row, E3's watch and E5's verdict are now in the
+app, on a TFTP backup tab - written without an SDK and not yet compiled; see "As built in the app" at the end.**
 
 The problem it comes from is real and current: FANUC robots running PaintTool back their images up
 over Ethernet to a TFTP server, and sometimes the backup does not start. Nobody can currently say
@@ -326,11 +327,11 @@ the symptom here is one that never starts.
 
 | | | Leaves you with |
 |---|---|---|
-| E1 | UDP/69 in the bar, plus the root-folder check | Is the server running, reachable and writable - **`TftpRootCheck` written; the second bar row is still to wire** |
+| E1 | UDP/69 in the bar, plus the root-folder check | Is the server running, reachable and writable - **in the app, on the TFTP tab's own row** |
 | E2 | The codec | Nothing on its own - **done, compiled, green** |
 | E3 | Watch, refusing | **Did the controller ask, and for what** - the answer to the stated symptom. **Observe done, compiled, green** |
 | E4 | Probe | The rollover question answered, and the ephemeral-port question answered |
-| E5 | The verdict panel | One sentence instead of six tabs |
+| E5 | The verdict panel | One sentence instead of six tabs - **in the app: `BackupVerdict`** |
 
 **E1 before E2.** It is the only part that needs no new code in `Core` at all, and it covers the
 dullest and most common third of the failure space. If the TFTP root turns out to be full or
@@ -423,3 +424,23 @@ working and the TFTP half not.
 
 Which is the same rule the rest of this repository already follows: find out what is actually
 happening before writing the thing that assumes.
+
+## As built in the app
+
+E1, E3 (Observe) and E5 went into `NetControl.App` as a **TFTP backup** tab. Four things were
+decided while wiring them that this document did not settle:
+
+- **UDP/69 got its own row on the tab, not a second row in the interface bar.** The bar's overall
+  grade is a maximum across its checks, and the point made under E1 - the same fact is good on one
+  port and bad on the other - means the two must never feed one grade.
+- **The vantage is a tick, not a guess.** "This PC is the backup server" decides whether nothing on
+  UDP/69 is the fault (it is, on the server) or the precondition for watching (it is, on a laptop).
+  Nothing on the machine can tell the two apart reliably, and a guess wrong in either direction
+  produces confident advice about the wrong problem.
+- **E5 has four steps, not six.** Steps 1 and 2 of the table at the top (boot monitor, port up with
+  no address) are invisible on the wire until step 3 happens, so they fold into "asked for an
+  address". Steps 5 and 6 are "asked for the file" and "sent the file", and the last is never seen
+  while only Observe exists - so the backup as a whole is never graded green, by construction.
+- **The verdict follows one device.** A segment can have several things asking for addresses; the
+  sentence is about a FANUC when one is asking (by OUI), otherwise the latest asker, and a device
+  NetControl has just served takes precedence over both.

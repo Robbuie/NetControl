@@ -17,6 +17,7 @@ using NetControl.Core.Enip;
 using NetControl.Core.Interfaces;
 using NetControl.Core.Oui;
 using NetControl.Core.Persistence;
+using NetControl.Core.Tftp;
 
 // Shares a name with this type's Plan property, which is the grid. Nothing here refers to the
 // namespace by its bare name - a simple name inside the class binds to the member - so the two
@@ -163,7 +164,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         TimeProvider? timeProvider = null,
         int listenPort = 67,
         DeviceDiscovery? discovery = null,
-        string? buildStamp = null)
+        string? buildStamp = null,
+        TftpWatchController? tftpWatch = null)
     {
         ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentNullException.ThrowIfNull(nics);
@@ -186,6 +188,20 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _buildStamp = buildStamp;
 
         InterfaceBar = new InterfaceBarViewModel(oui, _time, listenPort);
+
+        // The TFTP tab. Its own controller, because an image backup is a BOOTP request followed by
+        // a TFTP request and both listeners have to run at once. It reads the project and the
+        // selected adapter through these two lambdas rather than holding either, because both
+        // change under it - File, Open swaps the project, and the adapter is the user's to change.
+        Tftp = new TftpViewModel(
+            dispatcher,
+            preflight,
+            tftpWatch ?? new TftpWatchController(nics, _time),
+            () => _project,
+            () => InterfaceBar.SelectedAdapter,
+            oui,
+            _time,
+            TftpLimits.ServerPort);
         Log = new RequestLogViewModel(oui, _planIndex, _time);
         Plan = new DeviceGridViewModel(oui);
 
@@ -220,6 +236,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     /// <summary>What the last scan found. Empty, and harmless, until somebody presses Scan.</summary>
     public ScanResultsViewModel Scan { get; } = new();
+
+    /// <summary>The TFTP tab: the UDP/69 watch, and which step of an image backup failed.</summary>
+    public TftpViewModel Tftp { get; }
 
     /// <summary>
     /// Which build this is, in the status bar. It is here because it is the first question anybody
@@ -580,6 +599,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _server.StateChanged -= OnServerStateChanged;
 
         _server.Dispose();
+        Tftp.Dispose();
         _project.Dispose();
     }
 
@@ -938,6 +958,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         Log.OnRequest(e);
         Plan.NoteSeen(e.Mac);
+        Tftp.NoteDhcpRequest(e);
         InterfaceBar.NoteArrival(e.ArrivalInterfaceIndex, e.ArrivalNic?.Name ?? "unresolved adapter");
     });
 
@@ -951,6 +972,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             Plan.NoteServed(e.Mac);
         }
+
+        Tftp.NoteDhcpReply(e);
     });
 
     private void OnFault(object? sender, DhcpFaultEventArgs e) => RunOnUi(() =>
@@ -972,6 +995,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         RunState = _server.State;
         InterfaceBar.ApplyListener(RunState, _server.ActiveOptions?.Mode ?? DhcpServerMode.Watch, _server.StopReason);
+        Tftp.NoteDhcpState(RunState, _server.ActiveOptions?.Mode ?? DhcpServerMode.Watch);
 
         if (RunState is ServerRunState.Faulted && _server.StopReason is { } reason)
         {
@@ -984,6 +1008,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         if (e.PropertyName is nameof(InterfaceBarViewModel.SelectedAdapter))
         {
             Log.SelectedInterfaceIndex = InterfaceBar.SelectedAdapter?.Index;
+
+            // The TFTP watch refuses only on the selected adapter, so it cannot start without one.
+            Tftp.NoteAdapterChanged();
         }
 
         if (e.PropertyName is nameof(InterfaceBarViewModel.SelectedAdapter)
@@ -1039,6 +1066,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// </summary>
     private bool RequireStopped(string what)
     {
+        if (Tftp.IsRunning)
+        {
+            SetError(
+                "The TFTP watch is still running.",
+                $"Stop it on the TFTP tab before {what}, so the event log stays in one piece.");
+            return false;
+        }
+
         if (RunState is ServerRunState.Stopped or ServerRunState.Faulted)
         {
             return true;

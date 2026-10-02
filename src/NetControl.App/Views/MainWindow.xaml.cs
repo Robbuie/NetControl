@@ -488,5 +488,35 @@ public partial class MainWindow : Window
         return null;
     }
 
+    /// <summary>
+    /// Picks the TFTP server's root folder for the TFTP tab, then checks it straight away - picking a
+    /// folder is the moment somebody wants to know whether a backup can land in it.
+    /// </summary>
+    private void OnBrowseTftpRoot(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is not { } viewModel)
+        {
+            return;
+        }
+
+        var dialog = new OpenFolderDialog
+        {
+            Title = "TFTP server root folder",
+            Multiselect = false,
+        };
+
+        string current = viewModel.Tftp.RootFolder;
+        if (!string.IsNullOrWhiteSpace(current) && Directory.Exists(current))
+        {
+            dialog.InitialDirectory = current;
+        }
+
+        if (dialog.ShowDialog(this) == true)
+        {
+            viewModel.Tftp.RootFolder = dialog.FolderName;
+            viewModel.Tftp.CheckRootCommand.Execute(null);
+        }
+    }
+
     private void OnExit(object sender, RoutedEventArgs e) => Close();
 }

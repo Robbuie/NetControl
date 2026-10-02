@@ -714,6 +714,38 @@ of robot downtime produces something afterwards:
   A firewall rule names an executable, and `bin\Debug\net10.0\tftp-spike.exe` is rebuilt by the next
   run - which is a poor thing to have pointed an elevated rule at while a controller is waiting.
 
+**The TFTP tab: the watch, the UDP/69 checks and the verdict are in the app.** PLAN-TFTP.md parts
+E1, E3 (Observe) and E5. **Written in a session with no .NET SDK and not yet compiled** - the first
+`dotnet build`, or the `verify` workflow on push, is the check. Nothing in Core changed.
+
+- `Serving/TftpWatchController` - `ServerController`'s shape for `TftpWatchServer`, with
+  `TftpEventRecorder` attached for exactly as long as the watch runs. A separate controller because
+  both listeners run at once: an image backup is a BOOTP request *and then* a TFTP request.
+- `Diagnostics/BackupVerdict` - **the E5 sentence, as a pure function of `BackupEvidence`.** Four
+  steps (asked for an address, got one, asked for the file, sent the file), graded in order, and the
+  sentence names the earliest that is not known to have worked. Every step starts grey and turns
+  green only on something seen; the transfer is never seen, because the watch refuses on purpose, so
+  the backup as a whole is never reported as fine. When the first three are green the sentence says
+  the robot side works and hands the problem to the server's root folder, filename rules and
+  overwrite setting.
+- `ViewModels/TftpViewModel` + `TftpRequestRowViewModel`, and a **TFTP backup** tab beside Live
+  requests and Scan results. `MainViewModel` forwards the DHCP listener's requests, replies and state
+  into it, so the verdict sees both halves. **UDP/69 is graded on its own row, never averaged into the
+  interface bar**, and graded by vantage: a tick says whether this PC is the backup server, because
+  nothing holding UDP/69 is the fault there and is what lets the watch bind on a laptop.
+- The watch is **armed separately from being started**, like Serve, and refuses only on the adapter
+  selected at the top of the window - a refusal is a transmission. Requests on other adapters are
+  recorded and left alone, which is `TftpWatchServer`'s existing rule.
+- The verdict follows one device: a FANUC (by OUI) in preference to anything else asking on the
+  segment, and otherwise the most recent asker; a device NetControl has just served takes over.
+- `RequireStopped` now also refuses to swap projects while the TFTP watch runs.
+- `BackupVerdictTests` and `TftpViewModelTests` drive all of it with hand-built events and no
+  socket; `TftpViewModel.NoteFileRequest` is internal for that reason, the same way the recorders are.
+
+Still to do from PLAN-TFTP.md: **E4's probe** (be the client against the real server - the only piece
+that writes to plant infrastructure, so it has its own safety rules in that document) and **Accept
+mode**. The root folder path is not remembered between sessions yet.
+
 ### Pick up here
 
 **Everything in `src/` compiles and all 590 tests pass.** The hand-back, the plan-versus-scan
@@ -1016,9 +1048,9 @@ Not proven, and not provable at a desk:
   an image backup, take one and add the real ones; it is worth more than the rest of that file.
 - **Accept mode does not exist**, so nothing here has ever received a file. The watch can say what
   was asked for and refuse it; the transfer itself is still the real server's job.
-- **The app has no TFTP surface at all.** No view model, no tab, no menu entry - `TftpRootCheck` is
-  called by a test and nothing else, and the UDP/69 readiness row from PLAN-TFTP.md part E1 is not
-  built. Everything TFTP is reachable only through `spikes/Spike3.TftpWatch` and the test suite.
+- **The TFTP tab has never been on screen and has never been compiled by anybody but CI.** It was
+  written in a session with no SDK - see "The TFTP tab" under Current state. Same warning as every
+  other blind-written screen here: a binding that does not resolve costs nothing at build time.
 - **The watch has never received a TFTP request from anything but a test.** `tftp-spike --list` has
   run on a real machine; the watch itself has never had a real client talk to it, and `--send` has
   never been run at all.

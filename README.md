@@ -16,6 +16,7 @@ before changing anything that sends a packet.**
 | **Enable BOOTP/DHCP** | The reverse, for handing a device back to a plant DHCP server. |
 | **Scan** | One ListIdentity broadcast: what is on the segment, what it is, and its MAC via the ARP table. |
 | **Compare** | What the scan found against what the plan says - including the address you planned that something else is already sitting on. |
+| **TFTP backup** | Watches UDP/69 while a robot runs an image backup, records the file it asks for exactly as sent, and says which step the backup stopped at - the address request, the address, the file request, or the server. |
 | **Record** | Every state-changing operation, in an append-only SQLite table inside the project file. |
 
 ## The parts that are different from the tool it replaces

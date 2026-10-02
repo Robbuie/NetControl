@@ -4,6 +4,24 @@ Newest first. The release workflow copies a version's section onto its GitHub re
 write it for the person deciding whether to install the update. The heading has to start
 `## <version>` for that to find it.
 
+## 0.6.0 - the TFTP backup tab
+
+For the robot image backups that "never start". A FANUC backup over Ethernet is an address request
+followed by a file request, and when it fails the pendant cannot say which half broke. This can.
+
+- **A TFTP backup tab.** Stop the real TFTP server, tick Arm, press Watch TFTP, and run the backup.
+  Every file request is listed with the filename exactly as the controller sent it, the mode, where
+  it came from and which adapter it arrived on. The request is refused on purpose, so nothing is
+  received.
+- **Which step it stopped at, in one sentence.** Together with the BOOTP listener at the top of the
+  window, the tab grades the four steps - asked for an address, got one, asked for the file, sent the
+  file - and names the earliest one that did not happen, with what to do about it. Nothing turns
+  green until it has actually been seen.
+- **Checks for this PC.** Who holds UDP/69, whether the firewall lets it in, and - on the backup
+  server - whether the TFTP root folder exists, is writable and has room. Tick "This PC is the
+  backup server" on the server; leave it clear on a laptop on the robot network.
+- A netascii request is flagged, because an image sent that way arrives corrupted.
+
 ## 0.5.0 - first release
 
 The first build published as a release. It has not yet been in front of a real device - see

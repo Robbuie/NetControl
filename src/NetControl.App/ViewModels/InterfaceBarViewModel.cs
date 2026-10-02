@@ -308,7 +308,8 @@ public sealed partial class InterfaceBarViewModel : ObservableObject
         return new ReadinessCheck($"UDP/{report.Port}", state, report.Summary, report.Remediation);
     }
 
-    private static ReadinessCheck GradeFirewall(FirewallStatus status)
+    /// <summary>Internal so the TFTP tab grades its UDP/69 rule with exactly the same rules.</summary>
+    internal static ReadinessCheck GradeFirewall(FirewallStatus status)
     {
         ReadinessState state = status.Verdict switch
         {
