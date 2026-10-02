@@ -264,16 +264,26 @@ public sealed class EnipServer(SimulatedDevice device, Action<string> log, IPAdd
             return (CipCodec.BuildReply(service, CipStatus.ServiceNotSupported), false, false);
         }
 
-        // Ethernet Link object
+        // Ethernet Link object - one instance per port. Read-only here, as it is on most devices:
+        // nothing in NetControl writes to it, and Get_and_Clear (0x4C) is deliberately not served
+        // because nothing in NetControl may send it.
         if (path.Class == 0xF6)
         {
+            if (path.Instance < 1 || path.Instance > device.LinkPorts.Count)
+                return (CipCodec.BuildReply(service, CipStatus.ObjectDoesNotExist), false, false);
+
+            SimulatedLinkPort port = device.LinkPorts[path.Instance - 1];
+            bool counters = !device.Quirks.HasFlag(Quirk.NoLinkCounters);
+
             if (service == CipCodec.GetAttributeSingle)
             {
                 byte[]? v = path.Attribute switch
                 {
-                    1 => CipCodec.U32(100_000_000),                       // 100 Mb/s
-                    2 => CipCodec.U32(0b11),                              // link up, full duplex
-                    3 => device.MacAddress,
+                    1 => CipCodec.U32(port.SpeedMbps),                   // Mb/s, which is the spec's unit
+                    2 => CipCodec.U32(port.Flags),
+                    3 => port.Mac,
+                    4 when counters => SimulatedLinkPort.Pack(port.InterfaceCounters),
+                    5 when counters => SimulatedLinkPort.Pack(port.MediaCounters),
                     _ => null
                 };
                 return v is null

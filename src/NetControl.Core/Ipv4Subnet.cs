@@ -71,6 +71,48 @@ public readonly record struct Ipv4Subnet
     /// </summary>
     public IPAddress Broadcast => ToAddress((_address & _mask) | ~_mask);
 
+    /// <summary>The mask, as an address. Added for the subnet calculator, which has to show it back.</summary>
+    public IPAddress Mask => ToAddress(_mask);
+
+    /// <summary>The mask inverted - what ACLs and some switch configurations ask for.</summary>
+    public IPAddress Wildcard => ToAddress(~_mask);
+
+    /// <summary>
+    /// How many addresses a device may hold. A /32 is one host and a /31 two (RFC 3021 - no network
+    /// or broadcast address on a point-to-point link); anything wider loses those two.
+    /// </summary>
+    public long HostCount => PrefixLength switch
+    {
+        32 => 1,
+        31 => 2,
+        _ => (1L << (32 - PrefixLength)) - 2,
+    };
+
+    /// <summary>The first address a device may hold.</summary>
+    public IPAddress FirstHost => PrefixLength >= 31 ? Network : ToAddress((_address & _mask) + 1);
+
+    /// <summary>The last address a device may hold.</summary>
+    public IPAddress LastHost => PrefixLength >= 31 ? Broadcast : ToAddress(((_address & _mask) | ~_mask) - 1);
+
+    /// <summary>The address this subnet was created from - the host, not the network.</summary>
+    public IPAddress Address => ToAddress(_address);
+
+    /// <summary>A subnet from an address and a prefix length, 0 to 32.</summary>
+    public static bool TryFromPrefix(IPAddress? address, int prefixLength, out Ipv4Subnet subnet)
+    {
+        subnet = default;
+
+        if (prefixLength is < 0 or > 32 || address is null || !TryToUInt32(address, out uint addressBits))
+        {
+            return false;
+        }
+
+        // A shift by 32 is a shift by 0 in C#, so /0 is spelled out rather than computed.
+        uint mask = prefixLength == 0 ? 0u : uint.MaxValue << (32 - prefixLength);
+        subnet = new Ipv4Subnet(addressBits, mask);
+        return true;
+    }
+
     /// <summary>Whether <paramref name="address"/> is on this segment, boundaries included.</summary>
     public bool Contains(IPAddress? address) =>
         address is not null

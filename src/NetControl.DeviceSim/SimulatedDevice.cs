@@ -37,6 +37,19 @@ public enum Quirk
 
     /// <summary>Does not answer ListIdentity broadcasts, only unicast.</summary>
     IgnoresBroadcastDiscovery = 1 << 6,
+
+    /// <summary>Port 1 is half duplex because duplex negotiation failed, and its media counters show
+    /// the result: late collisions and FCS errors. The commonest intermittent fault on a plant floor.</summary>
+    DuplexMismatch = 1 << 7,
+
+    /// <summary>An embedded two-port switch: Ethernet Link instances 1 and 2, nothing plugged into 2.</summary>
+    TwoPorts = 1 << 8,
+
+    /// <summary>Address conflict detection has seen another station on this address (TCP/IP status bit 6).</summary>
+    AddressConflict = 1 << 9,
+
+    /// <summary>Refuses the optional Ethernet Link counters, attributes 4 and 5, as many small devices do.</summary>
+    NoLinkCounters = 1 << 10,
 }
 
 /// <summary>Class 0xF5 attribute 3, low nibble.</summary>
@@ -173,8 +186,54 @@ public sealed class SimulatedDevice
         NameServer2 = c.Ns2;
     }
 
-    /// <summary>Attribute 1 - interface status. Bit 0..3 = configuration status.</summary>
-    public uint InterfaceStatus => Method == ConfigMethod.Static ? 1u : 2u;
+    /// <summary>
+    /// Attribute 1 - interface status. Bits 0-3 say where the configuration came from (1: BOOTP,
+    /// DHCP or stored; 2: hardware switches), bit 5 that a written configuration is waiting for a
+    /// reset, bit 6 that address conflict detection has seen another station.
+    /// </summary>
+    public uint InterfaceStatus =>
+        (Quirks.HasFlag(Quirk.HardwarePinnedAddress) ? 2u : 1u)
+        | (_pending is not null ? 0x20u : 0u)
+        | (Quirks.HasFlag(Quirk.AddressConflict) ? 0x40u : 0u);
+
+    /// <summary>
+    /// One Ethernet Link instance per physical port. Built on first use, because the quirks that
+    /// shape it are init-only and are not set yet while the constructor runs.
+    /// </summary>
+    public IReadOnlyList<SimulatedLinkPort> LinkPorts => _ports ??= BuildPorts();
+
+    private List<SimulatedLinkPort>? _ports;
+
+    private List<SimulatedLinkPort> BuildPorts()
+    {
+        var first = new SimulatedLinkPort { Mac = MacAddress };
+
+        // Some plausible traffic, so a healthy device does not read as one that has never seen a frame.
+        first.InterfaceCounters[0] = 1_048_576;   // in octets
+        first.InterfaceCounters[1] = 5_000;       // in unicast packets
+        first.InterfaceCounters[2] = 1_200;       // in non-unicast packets
+        first.InterfaceCounters[6] = 524_288;     // out octets
+        first.InterfaceCounters[7] = 4_800;       // out unicast packets
+
+        if (Quirks.HasFlag(Quirk.DuplexMismatch))
+        {
+            first.Flags = 0x01 | (2u << 2);           // link, HALF duplex, duplex not negotiated
+            first.MediaCounters[1] = 12;              // FCS errors
+            first.MediaCounters[2] = 210;             // single collisions
+            first.MediaCounters[6] = 37;              // late collisions
+        }
+
+        var ports = new List<SimulatedLinkPort> { first };
+
+        if (Quirks.HasFlag(Quirk.TwoPorts))
+        {
+            byte[] second = (byte[])MacAddress.Clone();
+            second[5]++;
+            ports.Add(new SimulatedLinkPort { Mac = second, SpeedMbps = 0, Flags = 0 });
+        }
+
+        return ports;
+    }
 
     /// <summary>Identity object, Get_Attribute_All.</summary>
     public byte[] SerializeIdentity()

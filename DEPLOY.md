@@ -32,7 +32,7 @@ prints the exact `netsh` line; with an installed copy it is worth actually creat
 
 ## Where releases come from
 
-<https://github.com/Robbuie/netcontrol/releases>
+<https://github.com/Robbuie/NetControl/releases>
 
 Cutting one is a tag push. See [RELEASING.md](RELEASING.md).
 

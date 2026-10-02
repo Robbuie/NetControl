@@ -156,6 +156,10 @@ static string Describe(Quirk q) => q switch
     Quirk.SlowResponses             => "adds latency to every response",
     Quirk.DropConnectionOnWrite     => "drops TCP partway through a set",
     Quirk.IgnoresBroadcastDiscovery => "answers unicast ListIdentity only",
+    Quirk.DuplexMismatch            => "port 1 half duplex, with late collisions and FCS errors",
+    Quirk.TwoPorts                  => "embedded two-port switch, nothing plugged into port 2",
+    Quirk.AddressConflict           => "reports an address conflict in TCP/IP status",
+    Quirk.NoLinkCounters            => "refuses the optional Ethernet Link counters",
     _ => ""
 };
 

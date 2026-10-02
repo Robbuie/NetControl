@@ -126,7 +126,7 @@ $hash = (Get-FileHash $exe -Algorithm SHA256).Hash
 # which is the ordinary shape of things in a plant - it points settings.json at wherever this file
 # ends up. See DEPLOY.md.
 $manifest = [ordered] @{ version = $full }
-$manifest.url = if ($DownloadUrl) { $DownloadUrl } else { 'https://github.com/Robbuie/netcontrol/releases/latest' }
+$manifest.url = if ($DownloadUrl) { $DownloadUrl } else { 'https://github.com/Robbuie/NetControl/releases/latest' }
 if ($Notes) { $manifest.notes = $Notes }
 
 $manifest | ConvertTo-Json | Set-Content -Path (Join-Path $output 'version.json') -Encoding utf8

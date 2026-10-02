@@ -31,6 +31,9 @@
         <MenuItem Header="_Export plan to CSV..." Click="OnExportPlan"
                   ToolTip="The plan only. What was served and what was verified stay in the project's event log, which nothing can edit." />
         <Separator />
+        <MenuItem Header="Export commissioning _report..." Click="OnExportReport"
+                  ToolTip="The whole record as one HTML page for the customer: every device, what it was served, every write and its readback, the scans and the full event log. Prints to PDF from any browser." />
+        <Separator />
         <MenuItem Header="E_xit" Click="OnExit" />
       </MenuItem>
       <MenuItem Header="_Listener">
@@ -51,6 +54,15 @@
              way they like it will find this one already familiar. -->
         <MenuItem Header="_Appearance..." Click="OnAppearance"
                   ToolTip="Theme, accent colour and how much room the chrome takes. Applied as you choose, saved when you press OK." />
+      </MenuItem>
+      <MenuItem Header="_Tools">
+        <MenuItem Header="_Subnet calculator..." Click="OnSubnetCalculator"
+                  ToolTip="Network, broadcast, host range and mask for an address and prefix - and whether another address is on it. Opens on the selected adapter's own subnet." />
+        <Separator />
+        <MenuItem Header="_Ping the plan" Command="{Binding Diagnostics.PingPlanCommand}"
+                  ToolTip="Pings every planned address and fills in the Reach column." />
+        <MenuItem Header="_Diagnostics..." Click="OnDiagnoseSelectedRow"
+                  ToolTip="Opens the Diagnostics tab on the selected plan row's device." />
       </MenuItem>
       <MenuItem Header="_Help">
         <!-- The startup check is silent unless there is a newer build. This one always answers,
@@ -313,7 +325,9 @@
            save - see the status bar. -->
       <DockPanel Grid.Row="0" Margin="10,8,10,0">
 
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
+        <!-- A WrapPanel rather than a StackPanel since the toolbar grew a second group: on a narrow
+             window the diagnostics buttons drop to a second line instead of off the edge. -->
+        <WrapPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
           <TextBlock Text="Plan" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
           <TextBlock Style="{StaticResource Muted}" Margin="10,0,0,0" VerticalAlignment="Center">
             <Run Text="{Binding Plan.ServableCount, Mode=OneWay}" />
@@ -360,13 +374,44 @@
             </MenuItem>
           </Menu>
 
+          <!-- The same sequence, over every row that is ready and not yet Verified, one device at a
+               time. The confirmation names each device; Stop takes effect between devices, never in
+               the middle of one, because half a write is the worst place to leave a device. -->
+          <Button Content="Set static on all..."
+                  Margin="10,0,0,0"
+                  Command="{Binding Plan.SetStaticAllCommand}"
+                  ToolTip="Set static on every complete row not already Verified, one device at a time, after a confirmation that lists them. Each is written only at its own planned address." />
+          <Button Content="Stop"
+                  Command="{Binding Plan.StopBulkCommand}"
+                  Visibility="{Binding Plan.IsBulkRunning, Converter={StaticResource BoolToVisible}}"
+                  ToolTip="Stops after the device in progress. That one is allowed to finish." />
+
           <TextBlock Style="{StaticResource Muted}"
                      Margin="12,0,0,0"
                      VerticalAlignment="Center"
                      Foreground="{DynamicResource warn}"
                      Text="Writing to device..."
                      Visibility="{Binding Plan.IsCommissioning, Converter={StaticResource BoolToVisible}}" />
-        </StackPanel>
+
+          <Border Style="{StaticResource ToolbarSeparator}" Height="20" />
+
+          <!-- Reads. Nothing in this group writes to anything. -->
+          <Button Content="Ping plan"
+                  Command="{Binding Diagnostics.PingPlanCommand}"
+                  ToolTip="Pings every planned address, a few at a time, and fills in the Reach column. An answer proves something is at that address - not that it is the device the plan meant." />
+          <Button Content="Diagnose"
+                  Click="OnDiagnoseSelectedRow"
+                  ToolTip="Opens the Diagnostics tab on the selected device: ping, its own link and fault counters over EtherNet/IP, and which services it offers. Nothing is sent until you press a button there." />
+
+          <TextBlock Style="{StaticResource Muted}"
+                     Margin="12,0,0,0"
+                     VerticalAlignment="Center"
+                     MaxWidth="520"
+                     TextTrimming="CharacterEllipsis"
+                     Text="{Binding Plan.BulkStatus}"
+                     ToolTip="{Binding Plan.BulkStatus}"
+                     Visibility="{Binding Plan.BulkStatus, Converter={StaticResource NotNullToVisible}}" />
+        </WrapPanel>
 
         <Border DockPanel.Dock="Bottom" Margin="0,6,0,8" Padding="8,5"
                 Background="{DynamicResource notice-bad}"
@@ -459,6 +504,22 @@
 
             <DataGridTextColumn Header="State" Width="80" IsReadOnly="True"
                                 Binding="{Binding State, Mode=OneWay}" />
+
+            <!-- The last ping, this session only. Amber for silence, never red: plenty of drives and
+                 I/O adapters ignore ping, and a column that shouts about them gets ignored. -->
+            <DataGridTextColumn Header="Reach" Width="70" IsReadOnly="True"
+                                Binding="{Binding ReachText, Mode=OneWay}">
+              <DataGridTextColumn.ElementStyle>
+                <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                  <Setter Property="ToolTip" Value="{Binding ReachTooltip}" />
+                  <Style.Triggers>
+                    <DataTrigger Binding="{Binding ReachIsSilent}" Value="True">
+                      <Setter Property="Foreground" Value="{DynamicResource warn}" />
+                    </DataTrigger>
+                  </Style.Triggers>
+                </Style>
+              </DataGridTextColumn.ElementStyle>
+            </DataGridTextColumn>
 
             <DataGridTextColumn Header="Notes" Width="220" Binding="{Binding Notes}" />
           </DataGrid.Columns>
@@ -624,6 +685,42 @@
               </StackPanel>
             </Border>
 
+            <!-- What changed since the last scan of this subnet (PLAN-TOOLKIT.md F5): a device that
+                 moved, a module swapped for another, firmware that changed, something new, something
+                 silent. Absent after the first scan of a subnet, which has nothing to compare with. -->
+            <Border DockPanel.Dock="Bottom"
+                    Margin="10,0,10,8"
+                    Padding="10,8"
+                    Background="{DynamicResource bg-2}"
+                    BorderBrush="{DynamicResource line}"
+                    BorderThickness="1"
+                    CornerRadius="{DynamicResource corner}"
+                    Visibility="{Binding Scan.ChangesSummary, Converter={StaticResource NotNullToVisible}}">
+              <StackPanel>
+                <TextBlock FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,0,0,4"
+                           Text="{Binding Scan.ChangesSummary}" />
+                <ScrollViewer MaxHeight="110" VerticalScrollBarVisibility="Auto">
+                  <ItemsControl ItemsSource="{Binding Scan.Changes}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <TextBlock Text="{Binding Message}" TextWrapping="Wrap" Margin="0,1">
+                          <TextBlock.Style>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                              <Style.Triggers>
+                                <DataTrigger Binding="{Binding Severity}" Value="Warn">
+                                  <Setter Property="Foreground" Value="{DynamicResource warn}" />
+                                </DataTrigger>
+                              </Style.Triggers>
+                            </Style>
+                          </TextBlock.Style>
+                        </TextBlock>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </ScrollViewer>
+              </StackPanel>
+            </Border>
+
             <ListView ItemsSource="{Binding Scan.Rows}"
                       SelectedItem="{Binding Scan.SelectedRow}"
                       Margin="10,0,10,8"
@@ -638,6 +735,8 @@
                 <ContextMenu x:Key="ScanRowMenu">
                   <MenuItem Header="_Add to plan" Click="OnAddScanResultToPlan"
                             ToolTip="Adds this device to the plan at the address it is already holding. Nothing is sent." />
+                  <MenuItem Header="_Diagnose this device" Click="OnDiagnoseScanResult"
+                            ToolTip="Opens the Diagnostics tab on this device's address. Nothing is sent until you press a button there." />
                 </ContextMenu>
               </ListView.Resources>
 
@@ -965,6 +1064,230 @@
                 </GridView>
               </ListView.View>
             </ListView>
+          </DockPanel>
+        </TabItem>
+
+        <!-- ============================== Diagnostics ==============================
+             PLAN-TOOLKIT.md F1-F3. One device, three questions: does anything answer at its
+             address, what does it say about its own health over EtherNet/IP, and which services does
+             it offer. Every button here is a read, unicast to the one address in the box; nothing on
+             this tab writes to a device. Each still gets a row in the event log, because it put packets
+             on somebody's network. -->
+        <TabItem Header="Diagnostics" x:Name="DiagnosticsTab">
+          <DockPanel>
+
+            <WrapPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="10,8,10,6">
+              <TextBlock Text="Device" VerticalAlignment="Center" Margin="0,0,6,0" />
+              <TextBox Width="140"
+                       VerticalAlignment="Center"
+                       FontFamily="{DynamicResource mono}"
+                       Text="{Binding Diagnostics.TargetText, UpdateSourceTrigger=PropertyChanged}"
+                       ToolTip="One device's address. Pick a row in the plan or a scan result and press Diagnose, or type it." />
+              <TextBlock Style="{StaticResource Muted}"
+                         Margin="8,0,12,0"
+                         VerticalAlignment="Center"
+                         MaxWidth="260"
+                         TextTrimming="CharacterEllipsis"
+                         Text="{Binding Diagnostics.TargetName}" />
+
+              <Button Content="Ping"
+                      Command="{Binding Diagnostics.PingTargetCommand}"
+                      ToolTip="ICMP echo, up to two attempts. Many drives and I/O adapters ignore ping, so silence is not proof the device is off." />
+              <Button Content="Read device diagnostics"
+                      Command="{Binding Diagnostics.ReadHealthCommand}"
+                      ToolTip="Reads the device's identity, fault status, address settings and every port's link and error counters over EtherNet/IP. Read-only: it never clears a counter. Read twice to see which counters are still moving." />
+              <Button Content="Check services"
+                      Command="{Binding Diagnostics.CheckServicesCommand}"
+                      ToolTip="Connects to a short list of TCP ports one at a time and closes at once, sending nothing - web page, Modbus, S7, OPC UA, EtherNet/IP and a few more." />
+              <Button Content="Open web page"
+                      Click="OnOpenDeviceWebPage"
+                      Visibility="{Binding Diagnostics.WebPage, Converter={StaticResource NotNullToVisible}}"
+                      ToolTip="The device's own web page, in a browser. Usually where its detailed diagnostics are." />
+
+              <TextBlock Style="{StaticResource Muted}"
+                         Margin="12,0,0,0"
+                         VerticalAlignment="Center"
+                         MaxWidth="560"
+                         TextTrimming="CharacterEllipsis"
+                         Text="{Binding Diagnostics.Status}"
+                         ToolTip="{Binding Diagnostics.Status}" />
+            </WrapPanel>
+
+            <Border DockPanel.Dock="Top"
+                    Style="{StaticResource FaultNotice}"
+                    Margin="10,0,10,8"
+                    Visibility="{Binding Diagnostics.ErrorMessage, Converter={StaticResource NotNullToVisible}}">
+              <StackPanel>
+                <TextBlock Style="{StaticResource FaultText}" Text="{Binding Diagnostics.ErrorMessage}" />
+                <TextBlock Style="{StaticResource FaultText}" Margin="0,4,0,0"
+                           Visibility="{Binding Diagnostics.ErrorRemediation, Converter={StaticResource NotNullToVisible}}"
+                           Text="{Binding Diagnostics.ErrorRemediation}" />
+              </StackPanel>
+            </Border>
+
+            <!-- This PC's half of the link. A damaged patch lead between the laptop and the switch looks,
+                 from everywhere else in the tool, exactly like a device problem. -->
+            <Grid DockPanel.Dock="Top" Margin="10,0,10,6">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+              </Grid.ColumnDefinitions>
+              <Button Grid.Column="0" Content="This PC's adapter counters"
+                      VerticalAlignment="Top"
+                      Command="{Binding Diagnostics.ReadAdapterCountersCommand}"
+                      ToolTip="Asks Windows for the selected adapter's own error and discard counters. Read twice: errors still being counted on this PC's adapter are this PC's cable, port or dock." />
+              <TextBlock Grid.Column="1" Margin="10,3,0,0" TextWrapping="Wrap"
+                         Text="{Binding Diagnostics.AdapterCountersText}">
+                <TextBlock.Style>
+                  <Style TargetType="TextBlock" BasedOn="{StaticResource Muted}">
+                    <Style.Triggers>
+                      <DataTrigger Binding="{Binding Diagnostics.AdapterHasNewErrors}" Value="True">
+                        <Setter Property="Foreground" Value="{DynamicResource warn}" />
+                      </DataTrigger>
+                    </Style.Triggers>
+                  </Style>
+                </TextBlock.Style>
+              </TextBlock>
+            </Grid>
+
+            <TextBlock DockPanel.Dock="Top"
+                       Margin="12,0,10,6"
+                       TextWrapping="Wrap"
+                       Text="{Binding Diagnostics.PingResult}"
+                       Visibility="{Binding Diagnostics.PingResult, Converter={StaticResource NotNullToVisible}}" />
+
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+              <StackPanel Margin="10,0,10,8">
+
+                <!-- The health read: who the device says it is, how it says it is addressed, what is
+                     wrong (worst first), and every port. -->
+                <Border Padding="12,10"
+                        Margin="0,0,0,8"
+                        Background="{DynamicResource bg-2}"
+                        BorderBrush="{DynamicResource line}"
+                        BorderThickness="1"
+                        CornerRadius="{DynamicResource corner}"
+                        Visibility="{Binding Diagnostics.HasHealth, Converter={StaticResource BoolToVisible}}">
+                  <StackPanel>
+                    <TextBlock FontWeight="SemiBold" TextWrapping="Wrap" Text="{Binding Diagnostics.HealthTitle}" />
+                    <TextBlock Margin="0,4,0,0" TextWrapping="Wrap"
+                               Foreground="{DynamicResource txt-1}"
+                               Text="{Binding Diagnostics.HealthNetworkText}" />
+                    <TextBlock Margin="0,4,0,0" Style="{StaticResource Muted}" TextWrapping="Wrap"
+                               Text="{Binding Diagnostics.HealthComparison}" />
+
+                    <ItemsControl ItemsSource="{Binding Diagnostics.Findings}" Margin="0,8,0,0">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <Grid Margin="0,2">
+                            <Grid.ColumnDefinitions>
+                              <ColumnDefinition Width="Auto" />
+                              <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Ellipse Grid.Column="0" Width="9" Height="9" Margin="0,4,8,0" VerticalAlignment="Top">
+                              <Ellipse.Style>
+                                <Style TargetType="Ellipse">
+                                  <Setter Property="Fill" Value="{DynamicResource txt-2}" />
+                                  <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Severity}" Value="Warn">
+                                      <Setter Property="Fill" Value="{DynamicResource warn}" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Severity}" Value="Error">
+                                      <Setter Property="Fill" Value="{DynamicResource bad}" />
+                                    </DataTrigger>
+                                  </Style.Triggers>
+                                </Style>
+                              </Ellipse.Style>
+                            </Ellipse>
+                            <TextBlock Grid.Column="1" TextWrapping="Wrap" Text="{Binding Message}" />
+                          </Grid>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <ItemsControl ItemsSource="{Binding Diagnostics.Ports}" Margin="0,10,0,0">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <Grid Margin="0,3">
+                            <Grid.ColumnDefinitions>
+                              <ColumnDefinition Width="60" />
+                              <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" FontWeight="SemiBold">
+                              <Run Text="Port " /><Run Text="{Binding PortText, Mode=OneWay}" />
+                            </TextBlock>
+                            <StackPanel Grid.Column="1">
+                              <TextBlock TextWrapping="Wrap">
+                                <TextBlock.Style>
+                                  <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                                    <Style.Triggers>
+                                      <DataTrigger Binding="{Binding IsHalfDuplex}" Value="True">
+                                        <Setter Property="Foreground" Value="{DynamicResource warn}" />
+                                      </DataTrigger>
+                                      <DataTrigger Binding="{Binding HasFault}" Value="True">
+                                        <Setter Property="Foreground" Value="{DynamicResource bad}" />
+                                      </DataTrigger>
+                                    </Style.Triggers>
+                                  </Style>
+                                </TextBlock.Style>
+                                <Run Text="{Binding LinkText, Mode=OneWay}" />
+                                <Run Text="  " />
+                                <Run Text="{Binding MacText, Mode=OneWay}" FontFamily="{DynamicResource mono}" />
+                              </TextBlock>
+                              <TextBlock Style="{StaticResource Muted}" TextWrapping="Wrap"
+                                         Text="{Binding MediaText}" />
+                              <TextBlock Style="{StaticResource Muted}" TextWrapping="Wrap"
+                                         Text="{Binding InterfaceText}" />
+                            </StackPanel>
+                          </Grid>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <ItemsControl ItemsSource="{Binding Diagnostics.HealthNotes}" Margin="0,8,0,0">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                          <TextBlock Style="{StaticResource Muted}" TextWrapping="Wrap" Text="{Binding}" />
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+                </Border>
+
+                <!-- The service check: one row per port asked about, open ones first in the eye. -->
+                <ItemsControl ItemsSource="{Binding Diagnostics.Services}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <Grid Margin="0,1">
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="60" />
+                          <ColumnDefinition Width="120" />
+                          <ColumnDefinition Width="80" />
+                          <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Style="{StaticResource MonoText}" Text="{Binding Service.Port}" />
+                        <TextBlock Grid.Column="1" Text="{Binding Service.Name}" />
+                        <TextBlock Grid.Column="2" Text="{Binding StateText}">
+                          <TextBlock.Style>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                              <Setter Property="Foreground" Value="{DynamicResource txt-2}" />
+                              <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsOpen}" Value="True">
+                                  <Setter Property="Foreground" Value="{DynamicResource good}" />
+                                  <Setter Property="FontWeight" Value="SemiBold" />
+                                </DataTrigger>
+                              </Style.Triggers>
+                            </Style>
+                          </TextBlock.Style>
+                        </TextBlock>
+                        <TextBlock Grid.Column="3" Style="{StaticResource Muted}" TextTrimming="CharacterEllipsis"
+                                   Text="{Binding Service.Meaning}" />
+                      </Grid>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </ScrollViewer>
           </DockPanel>
         </TabItem>
 

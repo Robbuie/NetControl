@@ -47,7 +47,11 @@ src/NetControl.Core/          network engine - MUST NOT reference any UI assembl
     Enip/                     EtherNet/IP encapsulation: one session, one device
     Cip/                      CIP objects - 0xF5 is where the address lives
     Commissioning/            set static / disable BOOTP, with the readback
-    Discovery/                the scan + ARP join, and the plan-against-segment comparison
+    Discovery/                the scan + ARP join, the plan-against-segment comparison, and the
+                              scan-against-last-scan diff (InventoryDiff)
+    Reachability/             ping, the TCP service check, and UnicastTarget - the one-host rule
+    DeviceHealth/             the read-only CIP diagnostics read and what its counters mean
+    Reporting/                the commissioning report, and reading outcomes back out of the record
     Diagnostics/              the rolling diagnostic log - NOT the commissioning record
     Tftp/                     RFC 1350 codec + the server root check - the image-backup half
     Oui/                      packed IEEE vendor table + the embedded oui.bin
@@ -183,7 +187,19 @@ These are hard rules, not preferences:
 - **Accept mode never writes outside the folder chosen, and never over an existing file unless told
   to.** `TftpAcceptPath` is the only thing standing between an unauthenticated request and the disk.
 - **Every state-changing operation gets logged** to the append-only event log with timestamp,
-  target, what was sent, and what came back.
+  target, what was sent, and what came back. Reads that transmit - ping, the service check, the
+  CIP diagnostics read, a scan - get a row too: they are packets on somebody's network.
+- **Every probe goes to one host, checked by `UnicastTarget` before the first packet.** Ping, the
+  service check and the diagnostics read all refuse broadcast, multicast, 0.0.0.0, and - when the
+  mask is known - the subnet's own broadcast and network address. One bad address in a ping of the
+  plan refuses the whole sweep with nothing sent.
+- **Never clear a device's counters.** The Ethernet Link counters can be read-and-zeroed in one
+  service (Get_and_Clear, 0x4C). That is a write, and it destroys the history the next person needs;
+  two reads and a subtraction give the same figure. `DeviceHealthReader` sends Get_Attribute_Single
+  and nothing else.
+- **Set static on all is the single sequence, repeated, behind a confirmation that names every
+  device.** One device at a time, each unicast at its own planned address; Stop lands between
+  devices, never inside one. A null confirmation callback refuses rather than proceeds.
 
 ## Protocol gotchas
 
@@ -777,6 +793,42 @@ and not yet compiled.
   probe's server are remembered in `%LOCALAPPDATA%\NetControl\tftp.json` (`TftpSettingsStore`).
 - `PlanValidation.TryParseIPv4` is public now; the probe's server address uses it for the same reason
   the plan does.
+
+**Part F - the toolkit (`PLAN-TOOLKIT.md`). Written in a session with no .NET SDK and not yet
+compiled.** The syntax of every changed file was checked with a C# grammar (which parses all 294
+files that already compiled with no errors), so what is left for the first `dotnet build` is
+semantics - a wrong overload, a missing using, an analyser promoted to an error.
+
+- `Reachability/` - `IPinger` + `IcmpPinger`, `PingSweep` (at most four in flight, two attempts,
+  because the first echo is often lost to ARP), `ServiceProbe` (eleven ports, one at a time, three
+  seconds each because Windows retries a refused SYN twice before saying so), and `UnicastTarget`.
+- `Cip/EthernetLink` + `LinkFlags`, `InterfaceCounters`, `MediaCounters`. **Attribute 1 is Mb/s**,
+  not b/s; the simulator said 100,000,000 and has been corrected to 100.
+- `DeviceHealth/` - `DeviceHealthReader` (identity, TCP/IP status, every Ethernet Link instance until
+  the device says there is no such instance) and `DeviceHealthAssessment`, a pure function whose
+  rule is that **a counter is graded by whether it is still moving**: a first read's totals are Info
+  and say to read again; a second read of the same serial reports what moved as a Warn. Late
+  collisions, and any collision on a full-duplex port, are a Warn on sight.
+- `Commissioning/BulkCommissioner` - deliberately does *not* `ConfigureAwait(false)` between devices,
+  so its events arrive on the caller's context and the grid can touch rows from them.
+- Schema version 2: `ScanRun` and `ScanSighting`, append-only by trigger. `InventoryDiff` keys devices
+  on vendor + product + serial (MAC, then address, when the serial is 0), compares only scans of the
+  same subnet, and files a silent device as "not answering", never as removed.
+- `Reporting/CommissioningRecord` reads each device's last finished operation back out of the event
+  log (Cip rows with an `outcome` in the detail). The grid now uses it on load, so **Verified
+  survives reopening a project** - unless the readback's address no longer matches the plan.
+  `CommissioningReport` builds the HTML from the project file alone, all times UTC, all text encoded.
+- App: the Diagnostics tab (`DiagnosticsViewModel`), Ping plan / Diagnose / Set static on all on the
+  grid toolbar, a Reach column, a changes panel on the scan tab, Tools > Subnet calculator
+  (`SubnetCalculatorWindow`), File > Export commissioning report.
+- DeviceSim gains `DuplexMismatch`, `TwoPorts`, `AddressConflict` and `NoLinkCounters`, serves the
+  Ethernet Link counters per port, and reports TCP/IP status bit 5 while a write is held pending.
+
+**Never on screen:** the Diagnostics tab, the Reach column, the Set static on all confirmation, the
+scan-changes panel, the subnet calculator window and the report in a browser. **`EthernetLink` has
+never read a real device**, and the simulator's counters were written from the same reading of the
+spec - `EthernetLinkCodecTests` pins the offsets with literal bytes for that reason, but the first
+read of a real adapter beside its own web page's counters is the real check.
 
 ### Pick up here
 

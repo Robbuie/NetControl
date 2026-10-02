@@ -11,12 +11,15 @@ using NetControl.App.Diagnostics;
 using NetControl.App.Serving;
 using NetControl.Core;
 using NetControl.Core.Commissioning;
+using NetControl.Core.DeviceHealth;
 using NetControl.Core.Dhcp;
 using NetControl.Core.Discovery;
 using NetControl.Core.Enip;
 using NetControl.Core.Interfaces;
 using NetControl.Core.Oui;
 using NetControl.Core.Persistence;
+using NetControl.Core.Reachability;
+using NetControl.Core.Reporting;
 using NetControl.Core.Tftp;
 
 // Shares a name with this type's Plan property, which is the grid. Nothing here refers to the
@@ -167,7 +170,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         string? buildStamp = null,
         TftpWatchController? tftpWatch = null,
         TftpSettings? tftpSettings = null,
-        Action<TftpSettings>? saveTftpSettings = null)
+        Action<TftpSettings>? saveTftpSettings = null,
+        IPinger? pinger = null,
+        DeviceHealthReader? healthReader = null,
+        ServiceProbe? serviceProbe = null)
     {
         ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentNullException.ThrowIfNull(nics);
@@ -209,6 +215,17 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         Log = new RequestLogViewModel(oui, _planIndex, _time);
         Plan = new DeviceGridViewModel(oui);
 
+        // The Diagnostics tab. It reads the project through a lambda for the same reason the TFTP tab
+        // does - File, Open swaps it - and holds the grid so Ping plan can fill in the Reach column.
+        Diagnostics = new DiagnosticsViewModel(
+            dispatcher,
+            () => _project,
+            Plan,
+            pinger,
+            healthReader: healthReader,
+            serviceProbe: serviceProbe,
+            selectedAdapter: () => InterfaceBar.SelectedAdapter?.Nic);
+
         InterfaceBar.PropertyChanged += OnInterfaceBarPropertyChanged;
 
         // The grid writes to the file; this is what carries the edit through to the dictionary the
@@ -243,6 +260,25 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     /// <summary>The TFTP tab: the UDP/69 watch, and which step of an image backup failed.</summary>
     public TftpViewModel Tftp { get; }
+
+    /// <summary>One device's reachability, health and services, and pinging the whole plan.</summary>
+    public DiagnosticsViewModel Diagnostics { get; }
+
+    /// <summary>
+    /// Raised when something has been pointed at the Diagnostics tab, so the window can bring it to
+    /// the front. A view concern - which tab is showing - so the view model only says that it
+    /// happened.
+    /// </summary>
+    public event EventHandler? DiagnosticsRequested;
+
+    /// <summary>
+    /// What the subnet calculator starts with: the selected adapter's own address and prefix, which is
+    /// the subnet the question is nearly always about. Empty with no adapter selected.
+    /// </summary>
+    public string SubnetCalculatorStart =>
+        InterfaceBar.SelectedAdapter?.Nic is { IPv4: { } address, PrefixLength: { } prefix }
+            ? $"{address}/{prefix}"
+            : string.Empty;
 
     /// <summary>
     /// Which build this is, in the status bar. It is here because it is the first question anybody
@@ -452,6 +488,47 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
+    /// Writes the commissioning record out as one self-contained HTML page - the startup record for
+    /// the customer. See <see cref="CommissioningReport"/>: it reads the project file and nothing else,
+    /// so it says the same thing whenever and wherever it is generated.
+    ///
+    /// <para>Exporting is itself recorded, so a record handed over can be matched to the moment it was
+    /// taken.</para>
+    /// </summary>
+    /// <returns>True when the file was written.</returns>
+    public bool ExportReport(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        try
+        {
+            string html = CommissioningReport.BuildHtml(
+                _project,
+                _time.GetUtcNow(),
+                $"NetControl {NetControl.App.Diagnostics.BuildInfo.Version}");
+
+            File.WriteAllText(path, html, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+            ClearError();
+            Log.AddNotice($"Commissioning report written to {path}.");
+            RecordPlanFile(EventSeverity.Info, "Commissioning report exported.", path, _project.Devices.Count);
+            return true;
+        }
+        catch (PersistenceException ex)
+        {
+            SetError($"Could not read the project to report on it: {ex.Message}", ex.Remediation);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            SetError(
+                $"Could not write '{path}': {ex.Message}",
+                "Close the file if a browser has it open, or save it under a different name.");
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Moves a device from the live log into the plan: the loop this whole tool is built around.
     /// You watch a device ask, you plan it, and it is served on its next retransmit.
     ///
@@ -542,6 +619,36 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         Scan.ApplyPlan(Plan.IsPlanned);
         RecompareScan();
+    }
+
+    /// <summary>
+    /// Points the Diagnostics tab at a plan row's address. Sends nothing: the tab's buttons do that.
+    /// </summary>
+    public void DiagnosePlanRow(DeviceRowViewModel row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+
+        if (!row.TryBuild(out DeviceRecord? record) || record?.PlannedIp is not { } ip)
+        {
+            Log.AddNotice(
+                "That plan row has no address to diagnose.",
+                "Type its planned address first - diagnostics go to one address, and the tool does not guess one.");
+            return;
+        }
+
+        Diagnostics.SetTarget(ip, record.PlannedMask, record.DisplayName ?? record.Mac.ToString());
+        DiagnosticsRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Points the Diagnostics tab at a scanned device's address - the one it reported. Sends nothing.
+    /// </summary>
+    public void DiagnoseScanResult(ScanResultViewModel result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        Diagnostics.SetTarget(result.Device.Address, mask: null, name: result.ProductText);
+        DiagnosticsRequested?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
@@ -703,6 +810,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             RecordScan(result);
             Log.AddNotice(result.Summary);
 
+            // What changed since the last scan of this subnet, and then this scan into the history
+            // for the next one to be compared with. After the scan's own row, so the record reads
+            // in the order it happened.
+            CompareWithLastScan(result);
+
             foreach (IPAddress contested in result.ContestedAddresses)
             {
                 Log.AddNotice(
@@ -834,6 +946,75 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             RecordingIsIncomplete = true;
             Log.AddNotice($"Could not record what the scan said about the plan: {ex.Message}", ex.Remediation);
+        }
+    }
+
+    /// <summary>
+    /// Compares this scan with the last one of the same subnet, shows what changed, and adds this one
+    /// to the history. A scan of a different segment is not a "before", so an adapter with no
+    /// subnet - or a subnet never scanned - compares with nothing and only records.
+    ///
+    /// <para>The comparison goes into the record only when there was something to compare with: a
+    /// first scan of a subnet has nothing to say about change, and a row saying so on every first
+    /// scan would be noise. Changes that need a person get a row each; the rest are in the tally.</para>
+    ///
+    /// <para>Never throws, for the same reason the other recorders do not.</para>
+    /// </summary>
+    private void CompareWithLastScan(DiscoveryResult result)
+    {
+        NicInfo nic = result.Report.Nic;
+        IReadOnlyList<ScanSightingRecord> sightings = ScanSightings.From(result);
+
+        try
+        {
+            InventoryDiffResult? diff = null;
+
+            if (Ipv4Subnet.TryCreate(nic.IPv4, nic.Mask, out Ipv4Subnet subnet)
+                && _project.Scans.LatestOn(subnet) is { } earlier)
+            {
+                diff = InventoryDiff.Compare(_project.Scans.Sightings(earlier.Id), sightings, earlier.Utc);
+            }
+
+            _project.Scans.Record(_time.GetUtcNow(), $"[{nic.Index}] {nic.Name}", nic.IPv4, nic.Mask, sightings);
+
+            Scan.ApplyChanges(diff);
+
+            if (diff is null)
+            {
+                return;
+            }
+
+            Log.AddNotice(diff.Summary);
+
+            _project.Events.Append(
+                diff.Severity,
+                EventCategory.Scan,
+                diff.Summary,
+                target: $"[{nic.Index}] {nic.Name}",
+                detail: new EventDetail()
+                    .Add("moved", diff.Count(InventoryChangeKind.Moved))
+                    .Add("differentDevice", diff.Count(InventoryChangeKind.DifferentDevice))
+                    .Add("replaced", diff.Count(InventoryChangeKind.Replaced))
+                    .Add("firmwareChanged", diff.Count(InventoryChangeKind.FirmwareChanged))
+                    .Add("new", diff.Count(InventoryChangeKind.New))
+                    .Add("notAnswering", diff.Count(InventoryChangeKind.NotAnswering))
+                    .Add("unchanged", diff.Unchanged));
+
+            foreach (InventoryChange change in diff.Changes.Where(c => c.Severity != EventSeverity.Info))
+            {
+                Log.AddNotice(change.Message);
+                _project.Events.Append(
+                    change.Severity,
+                    EventCategory.Scan,
+                    change.Message,
+                    target: change.Address.ToString(),
+                    detail: new EventDetail().Add("change", change.Kind));
+            }
+        }
+        catch (PersistenceException ex)
+        {
+            RecordingIsIncomplete = true;
+            Log.AddNotice($"Could not keep this scan in the project's scan history: {ex.Message}", ex.Remediation);
         }
     }
 

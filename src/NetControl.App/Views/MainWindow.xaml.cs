@@ -27,9 +27,123 @@ public partial class MainWindow : Window
     /// <summary>Guards the Help menu's update check against a second press while one is in flight.</summary>
     private bool _checkingForUpdates;
 
-    public MainWindow() => InitializeComponent();
+    public MainWindow()
+    {
+        InitializeComponent();
+        DataContextChanged += OnDataContextChanged;
+    }
 
     private MainViewModel? ViewModel => DataContext as MainViewModel;
+
+    /// <summary>
+    /// Hooks up the two things the view model asks the window for: the confirmation in front of Set
+    /// static on all, and bringing the Diagnostics tab forward when something has been pointed at it.
+    /// </summary>
+    private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (e.OldValue is MainViewModel old)
+        {
+            old.DiagnosticsRequested -= OnDiagnosticsRequested;
+            old.Plan.ConfirmBulk = null;
+        }
+
+        if (e.NewValue is MainViewModel viewModel)
+        {
+            viewModel.DiagnosticsRequested += OnDiagnosticsRequested;
+            viewModel.Plan.ConfirmBulk = ConfirmSetStaticOnAll;
+        }
+    }
+
+    private void OnDiagnosticsRequested(object? sender, EventArgs e) => DiagnosticsTab.IsSelected = true;
+
+    /// <summary>
+    /// Names every device Set static on all is about to write to, and asks.
+    ///
+    /// <para>The list is the point. "Set static on 14 devices?" is a question nobody can answer
+    /// without going back to the grid; the MAC, the name and the address of each one is the thing
+    /// somebody checks against the drawing before saying yes. A long plan is cut off after twenty
+    /// lines with the count of the rest, because a dialog taller than the screen hides its own
+    /// buttons.</para>
+    /// </summary>
+    private bool ConfirmSetStaticOnAll(IReadOnlyList<DeviceRowViewModel> rows)
+    {
+        const int Shown = 20;
+
+        IEnumerable<string> lines = rows.Take(Shown).Select(row =>
+        {
+            string name = row.TryBuild(out NetControl.Core.Persistence.DeviceRecord? record)
+                && record?.DisplayName is { } display
+                    ? $"  {display}"
+                    : string.Empty;
+            return $"{row.IpText,-16} {row.MacText}{name}";
+        });
+
+        string more = rows.Count > Shown ? $"{Environment.NewLine}...and {rows.Count - Shown} more." : string.Empty;
+
+        MessageBoxResult answer = MessageBox.Show(
+            this,
+            $"Set static on {rows.Count} device(s), one at a time?"
+                + Environment.NewLine + Environment.NewLine
+                + string.Join(Environment.NewLine, lines) + more
+                + Environment.NewLine + Environment.NewLine
+                + "Each is written only at its own planned address, and read back before it is called "
+                + "Verified. Stop takes effect after the device in progress."
+                + (ViewModel?.Plan.AllowDeviceReset == true
+                    ? Environment.NewLine + Environment.NewLine
+                        + "Reset is allowed: a device that needs one to apply its address WILL be reset."
+                    : string.Empty),
+            "Set static on all",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question,
+
+            // No is the default, as for the hand-back: a stray return key cannot start this.
+            MessageBoxResult.No);
+
+        return answer == MessageBoxResult.Yes;
+    }
+
+    /// <summary>Points the Diagnostics tab at the selected plan row. Sends nothing.</summary>
+    private void OnDiagnoseSelectedRow(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is not { } viewModel)
+        {
+            return;
+        }
+
+        if (viewModel.Plan.SelectedRow is { } row)
+        {
+            viewModel.DiagnosePlanRow(row);
+        }
+        else
+        {
+            // Nothing selected is still a request to see the tab - somebody may want to type an address.
+            DiagnosticsTab.IsSelected = true;
+        }
+    }
+
+    /// <summary>The same, from a scan result's context menu.</summary>
+    private void OnDiagnoseScanResult(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is { } viewModel && ScanResultFrom(sender) is { } result)
+        {
+            viewModel.DiagnoseScanResult(result);
+        }
+    }
+
+    /// <summary>
+    /// Opens the subnet calculator on the selected adapter's own subnet. Modeless, so it can stay open
+    /// beside the plan while addresses are typed into it.
+    /// </summary>
+    private void OnSubnetCalculator(object sender, RoutedEventArgs e) =>
+        new SubnetCalculatorWindow(ViewModel?.SubnetCalculatorStart) { Owner = this }.Show();
+
+    private void OnOpenDeviceWebPage(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel?.Diagnostics.WebPage is { } page)
+        {
+            Shell.Open(this, page.ToString());
+        }
+    }
 
     private void OnOpenProject(object sender, RoutedEventArgs e)
     {
@@ -124,6 +238,47 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog(this) == true)
         {
             viewModel.ExportPlan(dialog.FileName);
+        }
+    }
+
+    /// <summary>
+    /// Writes the commissioning report and offers to open it. Like the CSV export, the dialog's own
+    /// overwrite prompt is the confirmation: a report is regenerated from the record at any time, so
+    /// replacing one loses nothing the project file does not still hold.
+    /// </summary>
+    private void OnExportReport(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is not { } viewModel)
+        {
+            return;
+        }
+
+        var dialog = new SaveFileDialog
+        {
+            Title = "Export commissioning report",
+            Filter = "Web page (*.html)|*.html|All files (*.*)|*.*",
+            DefaultExt = ".html",
+            AddExtension = true,
+            OverwritePrompt = true,
+            FileName = $"{viewModel.ProjectName} commissioning record.html",
+        };
+
+        if (dialog.ShowDialog(this) != true || !viewModel.ExportReport(dialog.FileName))
+        {
+            return;
+        }
+
+        MessageBoxResult open = MessageBox.Show(
+            this,
+            $"Written to {dialog.FileName}." + Environment.NewLine + Environment.NewLine
+                + "Open it now? It prints to PDF from the browser's own print dialog.",
+            "Commissioning report",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Information);
+
+        if (open == MessageBoxResult.Yes)
+        {
+            Shell.Open(this, dialog.FileName);
         }
     }
 

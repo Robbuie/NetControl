@@ -25,9 +25,9 @@ internal static class SchemaMigrations
     /// Highest schema version this build understands. Always equal to <see cref="Steps"/>.Count -
     /// step index <c>i</c> takes the file from version <c>i</c> to version <c>i + 1</c>.
     /// </summary>
-    public const int CurrentVersion = 1;
+    public const int CurrentVersion = 2;
 
-    public static IReadOnlyList<string> Steps { get; } = [V1];
+    public static IReadOnlyList<string> Steps { get; } = [V1, V2];
 
     /// <summary>
     /// Initial schema. The table definitions are the ones written out in ROADMAP.md; the triggers
@@ -91,6 +91,68 @@ internal static class SchemaMigrations
         CREATE TRIGGER TR_Event_NoDelete BEFORE DELETE ON Event
         BEGIN
             SELECT RAISE(ABORT, 'The Event table is append-only: rows may not be deleted.');
+        END;
+        """;
+
+    /// <summary>
+    /// Scan history (PLAN-TOOLKIT.md F5): every ListIdentity scan and every device that answered it,
+    /// so the next scan of the same subnet can say what changed - a device that moved address, a
+    /// module swapped for another with a different serial, firmware that changed under a validated
+    /// line.
+    ///
+    /// <para>Append-only, by trigger, for the same reason as <c>Event</c>: "what answered on Tuesday"
+    /// is part of the record, and a record that can be edited is not one. The device columns are
+    /// the identity object as the device stated it, not anything resolved later - vendor names come
+    /// from the IEEE table and move; what the device said does not.</para>
+    ///
+    /// <para>A file migrated to this version is refused by a build that only knows version 1, with
+    /// that build's existing "update the tool" remediation. That is the cost of a table, and the
+    /// reason this step waited for a feature that needed one.</para>
+    /// </summary>
+    private const string V2 = """
+        CREATE TABLE ScanRun (
+            Id          INTEGER PRIMARY KEY,
+            Utc         TEXT NOT NULL,
+            NicName     TEXT NOT NULL,
+            NicAddress  TEXT,
+            NicMask     TEXT,
+            Answered    INTEGER NOT NULL
+        );
+
+        CREATE TABLE ScanSighting (
+            Id           INTEGER PRIMARY KEY,
+            ScanRunId    INTEGER NOT NULL REFERENCES ScanRun(Id),
+            Address      TEXT NOT NULL,
+            Mac          TEXT,
+            VendorId     INTEGER NOT NULL,
+            DeviceType   INTEGER NOT NULL,
+            ProductCode  INTEGER NOT NULL,
+            Revision     TEXT NOT NULL,
+            Serial       INTEGER NOT NULL,
+            ProductName  TEXT NOT NULL
+        );
+
+        CREATE INDEX IX_ScanRun_Utc ON ScanRun(Utc);
+        CREATE INDEX IX_ScanSighting_Run ON ScanSighting(ScanRunId);
+
+        CREATE TRIGGER TR_ScanRun_NoUpdate BEFORE UPDATE ON ScanRun
+        BEGIN
+            SELECT RAISE(ABORT, 'The ScanRun table is append-only: rows may not be updated.');
+        END;
+
+        CREATE TRIGGER TR_ScanRun_NoDelete BEFORE DELETE ON ScanRun
+        BEGIN
+            SELECT RAISE(ABORT, 'The ScanRun table is append-only: rows may not be deleted.');
+        END;
+
+        CREATE TRIGGER TR_ScanSighting_NoUpdate BEFORE UPDATE ON ScanSighting
+        BEGIN
+            SELECT RAISE(ABORT, 'The ScanSighting table is append-only: rows may not be updated.');
+        END;
+
+        CREATE TRIGGER TR_ScanSighting_NoDelete BEFORE DELETE ON ScanSighting
+        BEGIN
+            SELECT RAISE(ABORT, 'The ScanSighting table is append-only: rows may not be deleted.');
         END;
         """;
 

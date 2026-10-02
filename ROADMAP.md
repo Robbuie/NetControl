@@ -7,6 +7,13 @@ Estimates assume part-time work around a real job. The sequencing matters more t
 each phase produces something usable on its own, so the work can stop at any boundary and still
 leave you better off than the Rockwell tool.
 
+**Pulled forward in Part F ([PLAN-TOOLKIT.md](PLAN-TOOLKIT.md)), written and not yet compiled:**
+Phase 3's bulk commissioner and commissioning report (the CLI is still to do); Phase 4's inventory
+diff, against a scan history kept in the project; and from Phase 5 the subnet calculator, this PC's
+interface error counters, and cable/link diagnostics through the CIP Ethernet Link counters - plus
+ping and a TCP service check. Phase 1's status below is out of date: the device grid and CSV are
+done (see PLAN-NEXT.md).
+
 ---
 
 ## Phase 0 - De-risk  *(complete - 2026-08-06)*

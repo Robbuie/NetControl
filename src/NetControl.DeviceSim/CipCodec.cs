@@ -30,6 +30,7 @@ public static class CipStatus
     public const byte NotEnoughData        = 0x13;
     public const byte AttributeNotSupported = 0x14;
     public const byte TooMuchData          = 0x15;
+    public const byte ObjectDoesNotExist   = 0x16;
 }
 
 public static class CipCodec

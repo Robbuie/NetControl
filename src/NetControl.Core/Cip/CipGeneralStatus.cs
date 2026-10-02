@@ -39,6 +39,12 @@ public static class CipGeneralStatus
 
     public const byte TooMuchData = 0x15;
 
+    /// <summary>
+    /// The instance asked for is not there. How a device with one Ethernet port answers a question
+    /// about its second, which is how the diagnostics read finds out how many ports there are.
+    /// </summary>
+    public const byte ObjectDoesNotExist = 0x16;
+
     public static string Describe(byte status, IReadOnlyList<ushort>? additionalStatus = null)
     {
         string text = status switch
@@ -60,6 +66,7 @@ public static class CipGeneralStatus
             NotEnoughData => "Not enough data - the request was shorter than the attribute needs",
             AttributeNotSupported => "Attribute not supported by this object",
             TooMuchData => "Too much data - the request was longer than the attribute takes",
+            ObjectDoesNotExist => "Object does not exist - the device has no such instance",
             0x1E => "Embedded service error",
             _ => $"General status 0x{status.ToString("X2", CultureInfo.InvariantCulture)}",
         };

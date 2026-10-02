@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Net;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using NetControl.Core;
@@ -7,6 +8,7 @@ using NetControl.Core.Commissioning;
 using NetControl.Core.Enip;
 using NetControl.Core.Oui;
 using NetControl.Core.Persistence;
+using NetControl.Core.Reporting;
 
 namespace NetControl.App.ViewModels;
 
@@ -65,8 +67,31 @@ public sealed partial class DeviceGridViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(SetStaticCommand))]
     [NotifyCanExecuteChangedFor(nameof(EnableBootpCommand))]
     [NotifyCanExecuteChangedFor(nameof(EnableDhcpCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SetStaticAllCommand))]
     [NotifyPropertyChangedFor(nameof(CanHandBack))]
     private bool _isCommissioning;
+
+    /// <summary>True while Set static is working through the plan. Enables the Stop button.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(StopBulkCommand))]
+    private bool _isBulkRunning;
+
+    /// <summary>Where a bulk run has got to, or what the last one did.</summary>
+    [ObservableProperty]
+    private string? _bulkStatus;
+
+    /// <summary>The run in progress, so Stop has something to ask. Null when none is.</summary>
+    private BulkCommissioner? _bulk;
+
+    /// <summary>
+    /// Asked before Set static on all writes anything, with the rows it is about to write to; true
+    /// means go ahead. The window sets this to a dialog that names every device.
+    ///
+    /// <para><b>Null refuses.</b> A run over the whole plan writes to every device on it, and the one
+    /// default that cannot surprise anybody is that it does not happen without being confirmed. A
+    /// test that wants it to run says so.</para>
+    /// </summary>
+    public Func<IReadOnlyList<DeviceRowViewModel>, bool>? ConfirmBulk { get; set; }
 
     /// <summary>
     /// Whether the commissioner may reset a device that will not apply a configuration without one.
@@ -122,6 +147,16 @@ public sealed partial class DeviceGridViewModel : ObservableObject
     /// <summary>Rows that are complete, valid, and would be answered in Serve mode.</summary>
     public int ServableCount => Rows.Count(row => row.IsServable);
 
+    /// <summary>
+    /// The rows Set static on all would write to: saved, servable - so an address and a mask to write
+    /// - and not already Verified. Exactly the rule the single Set static uses, minus the rows that
+    /// are already done, so nothing reaches a device in bulk that could not be reached one at a time.
+    /// </summary>
+    public IReadOnlyList<DeviceRowViewModel> ReadyForBulk() =>
+        [.. Rows.Where(row => row.Id > 0 && row.IsServable && row.State != DeviceState.Verified
+            && row.TryBuild(out DeviceRecord? record)
+            && record?.PlannedIp is not null && record.PlannedMask is not null)];
+
     /// <summary>Points the grid at a project and reads its plan. Replaces everything on screen.</summary>
     public void Load(ProjectStore project)
     {
@@ -153,15 +188,24 @@ public sealed partial class DeviceGridViewModel : ObservableObject
 
         IReadOnlySet<long> served = _project.Assignments.ServedDeviceIds();
 
+        // Verified survives closing the project. Only a readback sets it, and the readback is in the
+        // record - so reading the record back is the readback, not a guess. A row whose planned
+        // address has been edited since is not the device that was verified, and goes back to what it
+        // can otherwise claim.
+        IReadOnlyDictionary<long, DeviceCommissioning> outcomes = CommissioningRecord.LastOutcomes(_project.Events.All());
+
         foreach (DeviceRecord record in _project.Devices.All())
         {
             var row = DeviceRowViewModel.FromRecord(record);
-            row.State = StateOf(record.Id, record.Mac, served);
+            row.State = IsStillVerified(record, outcomes)
+                ? DeviceState.Verified
+                : StateOf(record.Id, record.Mac, served);
             row.Edited += OnRowEdited;
             Rows.Add(row);
         }
 
         OnPropertyChanged(nameof(ServableCount));
+        SetStaticAllCommand.NotifyCanExecuteChanged();
     }
 
     /// <summary>
@@ -198,6 +242,8 @@ public sealed partial class DeviceGridViewModel : ObservableObject
                 row.State = DeviceState.Served;
             }
         }
+
+        SetStaticAllCommand.NotifyCanExecuteChanged();
     }
 
     /// <summary>Whether the plan already holds this MAC. The plan is keyed on it, so this is exact.</summary>
@@ -298,23 +344,12 @@ public sealed partial class DeviceGridViewModel : ObservableObject
             return;
         }
 
-        if (device!.PlannedIp is not { } ip || device.PlannedMask is not { } mask)
+        if (BuildStaticRequest(device!) is not { } request)
         {
             return;
         }
 
-        var request = new StaticIpRequest
-        {
-            // Where the device is now and where it should stay. The common job is not moving a
-            // device but making the address it already has permanent.
-            DeviceAddress = ip,
-            Ip = ip,
-            Mask = mask,
-            Gateway = device.PlannedGateway,
-            Quirks = device.Quirks,
-            AllowReset = AllowDeviceReset,
-            Port = CommissionPort,
-        };
+        IPAddress ip = request.DeviceAddress;
 
         IsCommissioning = true;
         _commissioningDeviceId = row.Id;
@@ -322,7 +357,7 @@ public sealed partial class DeviceGridViewModel : ObservableObject
         try
         {
             Record(EventSeverity.Info, row,
-                $"Set static requested for {device.Mac} at {ip}"
+                $"Set static requested for {device!.Mac} at {ip}"
                 + (AllowDeviceReset ? ", reset allowed." : ", no reset."));
 
             CommissionResult result = await _commissioner.RunAsync(request, cancellationToken);
@@ -339,6 +374,114 @@ public sealed partial class DeviceGridViewModel : ObservableObject
             IsCommissioning = false;
             _commissioningDeviceId = null;
         }
+    }
+
+    /// <summary>
+    /// Set static on every row in <see cref="ReadyForBulk"/>, one device at a time.
+    ///
+    /// <para>Each row goes through exactly what the single Set static does: the same request, the same
+    /// <see cref="Apply"/>, the same event rows attributed to the same device - so there is still only
+    /// one way a row becomes Verified. What this adds is the loop, a line in the record either side of
+    /// it, and a Stop that takes effect between devices rather than half way through one.</para>
+    ///
+    /// <para>The confirmation naming every device belongs to the window, for the same reason the
+    /// hand-back's does: a view model that puts a dialog on the screen cannot be tested.</para>
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanSetStaticAll))]
+    private async Task SetStaticAllAsync(CancellationToken cancellationToken)
+    {
+        if (_project is null)
+        {
+            return;
+        }
+
+        var work = new List<(DeviceRowViewModel Row, StaticIpRequest Request)>();
+
+        foreach (DeviceRowViewModel row in ReadyForBulk())
+        {
+            if (row.TryBuild(out DeviceRecord? device) && BuildStaticRequest(device!) is { } request)
+            {
+                work.Add((row, request));
+            }
+        }
+
+        if (work.Count == 0)
+        {
+            BulkStatus = "Nothing to do: every complete row is already Verified.";
+            return;
+        }
+
+        if (ConfirmBulk is not { } confirm || !confirm([.. work.Select(w => w.Row)]))
+        {
+            BulkStatus = "Set static on all was not confirmed. Nothing was sent.";
+            return;
+        }
+
+        var bulk = new BulkCommissioner(_commissioner);
+
+        // Raised on this thread: BulkCommissioner resumes on the caller's context between devices,
+        // so the rows can be touched directly here, exactly as the single Set static touches them.
+        bulk.DeviceStarting += (_, e) =>
+        {
+            DeviceRowViewModel row = work[e.Index].Row;
+            _commissioningDeviceId = row.Id;
+            SelectedRow = row;
+            BulkStatus = $"Device {e.Index + 1} of {e.Total}: {row.Mac} at {e.Request.DeviceAddress}...";
+
+            Record(EventSeverity.Info, row,
+                $"Set static requested for {row.Mac} at {e.Request.DeviceAddress} (device {e.Index + 1} of {e.Total} "
+                + "in a run over the plan" + (AllowDeviceReset ? ", reset allowed)." : ", no reset)."));
+        };
+
+        bulk.DeviceFinished += (_, e) => Apply(work[e.Index].Row, e.Result!);
+
+        IsCommissioning = true;
+        IsBulkRunning = true;
+        _bulk = bulk;
+
+        try
+        {
+            Record(EventSeverity.Info, row: null,
+                $"Set static on all ready devices: {work.Count} device(s), one at a time: "
+                + string.Join(", ", work.Select(w => $"{w.Row.Mac} at {w.Request.DeviceAddress}")) + ".");
+
+            BulkCommissionResult result = await bulk.RunAsync([.. work.Select(w => w.Request)], cancellationToken);
+
+            BulkStatus = result.Summary;
+
+            // After the run, with no device id: it is about the run, and each device already has its own.
+            _commissioningDeviceId = null;
+            Record(
+                result.AllVerified ? EventSeverity.Info : EventSeverity.Warn,
+                row: null,
+                result.Summary,
+                new EventDetail()
+                    .Add("operation", "setStaticAll")
+                    .Add("devices", work.Count)
+                    .Add("verified", result.Verified)
+                    .Add("notVerified", result.NotVerified)
+                    .Add("notStarted", result.NotStarted.Count)
+                    .Add("stopped", result.WasStopped));
+        }
+        catch (OperationCanceledException)
+        {
+            // The window is closing mid-run. Every device already has its own rows in the record.
+        }
+        finally
+        {
+            IsCommissioning = false;
+            IsBulkRunning = false;
+            _commissioningDeviceId = null;
+            _bulk = null;
+        }
+    }
+
+    /// <summary>Stops a bulk run after the device in progress. Nothing more is sent.</summary>
+    [RelayCommand(CanExecute = nameof(IsBulkRunning))]
+    private void StopBulk()
+    {
+        _bulk?.RequestStop();
+        BulkStatus = "Stopping after this device - the one in progress is allowed to finish.";
     }
 
     /// <summary>
@@ -511,6 +654,9 @@ public sealed partial class DeviceGridViewModel : ObservableObject
     /// </summary>
     private void Apply(DeviceRowViewModel row, CommissionResult result)
     {
+        // Whichever way it went, the set of rows Set static on all would touch may have changed.
+        SetStaticAllCommand.NotifyCanExecuteChanged();
+
         if (result.IsVerified)
         {
             row.State = DeviceState.Verified;
@@ -536,6 +682,36 @@ public sealed partial class DeviceGridViewModel : ObservableObject
                 .Add("resetTheDevice", result.ResetTheDevice)
                 .Add("readback", result.Readback?.ToString())
                 .Add("reportedMethod", result.ReportedMethod));
+    }
+
+    private bool CanSetStaticAll() =>
+        !IsCommissioning
+        && _project is not null
+        && Rows.Any(row => row.Id > 0 && row.IsServable && row.State != DeviceState.Verified);
+
+    /// <summary>
+    /// The request for one planned device: addressed at its planned address, which is where BOOTP
+    /// just put it, and told to stay there. Null when the row has no address or mask to write.
+    /// </summary>
+    private StaticIpRequest? BuildStaticRequest(DeviceRecord device)
+    {
+        if (device.PlannedIp is not { } ip || device.PlannedMask is not { } mask)
+        {
+            return null;
+        }
+
+        return new StaticIpRequest
+        {
+            // Where the device is now and where it should stay. The common job is not moving a
+            // device but making the address it already has permanent.
+            DeviceAddress = ip,
+            Ip = ip,
+            Mask = mask,
+            Gateway = device.PlannedGateway,
+            Quirks = device.Quirks,
+            AllowReset = AllowDeviceReset,
+            Port = CommissionPort,
+        };
     }
 
     private bool CanSetStatic() =>
@@ -663,8 +839,19 @@ public sealed partial class DeviceGridViewModel : ObservableObject
         }
 
         OnPropertyChanged(nameof(ServableCount));
+        SetStaticAllCommand.NotifyCanExecuteChanged();
         PlanChanged?.Invoke(this, EventArgs.Empty);
     }
+
+    /// <summary>
+    /// Whether the record says this device's last finished operation was a verified Set static, at
+    /// the address the plan still gives it.
+    /// </summary>
+    private static bool IsStillVerified(DeviceRecord record, IReadOnlyDictionary<long, DeviceCommissioning> outcomes) =>
+        outcomes.TryGetValue(record.Id, out DeviceCommissioning? last)
+        && last.Outcome == CommissioningOutcome.Verified
+        && record.PlannedIp is { } planned
+        && (last.Readback is null || last.Readback.StartsWith($"ip={planned} ", StringComparison.Ordinal));
 
     private DeviceState StateOf(long id, MacAddress mac, IReadOnlySet<long> served)
     {

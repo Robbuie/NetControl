@@ -4,6 +4,36 @@ Newest first. The release workflow copies a version's section onto its GitHub re
 write it for the person deciding whether to install the update. The heading has to start
 `## <version>` for that to find it.
 
+## 0.8.0 - diagnostics, Set static on all, scan history and the commissioning report
+
+Project files written by this version are schema version 2 (the scan history). Older builds will
+refuse to open them and say to update; this build opens every older file and upgrades it.
+
+- **Ping.** One device from the new Diagnostics tab, or **Ping plan** on the grid, which pings every
+  planned address a few at a time and fills in a new **Reach** column. Silence is amber, never red:
+  plenty of drives and I/O adapters ignore ping.
+- **Device diagnostics over EtherNet/IP.** Pick a row and press **Diagnose**, then **Read device
+  diagnostics**. It reads the device's fault bits, its address-conflict detection, whether a written
+  address is still waiting for a reset, and every port's speed, duplex and error counters - and says
+  what they mean: half duplex and late collisions are a duplex mismatch, FCS errors are a cable,
+  discards are multicast flooding. Read twice and it reports what is still counting rather than what
+  happened once since power-up. It only reads, and it never clears a counter.
+- **Service check.** Which of a short list of TCP services a device answers on - web page, Modbus,
+  S7, OPC UA, EtherNet/IP and a few more - one connection at a time with nothing sent, and an **Open
+  web page** button when it has one.
+- **Set static on all.** Every complete row that is not yet Verified, one device at a time, after a
+  confirmation that lists each one. **Stop** finishes the device in progress and starts no more.
+- **Verified is remembered.** Reopening a project shows the devices that were verified, read back
+  out of the record - unless the planned address has been changed since.
+- **What changed since the last scan.** Every scan is kept in the project, and the next scan of the
+  same subnet lists what moved, what was replaced, what has new firmware, what is new and what has
+  gone quiet.
+- **Tools > Subnet calculator**, opening on the selected adapter's own subnet, and **This PC's adapter
+  counters** on the Diagnostics tab - a bad patch lead on the laptop looks like a device problem from
+  everywhere else.
+- **File > Export commissioning report.** The whole record as one HTML page to hand over at the end
+  of a job, which prints to PDF from any browser.
+
 ## 0.7.0 - receive the backup, and probe the server
 
 - **Receive the backup.** Tick "Receive the backup" before pressing Watch TFTP and NetControl

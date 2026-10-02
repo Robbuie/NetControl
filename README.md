@@ -17,6 +17,13 @@ before changing anything that sends a packet.**
 | **Scan** | One ListIdentity broadcast: what is on the segment, what it is, and its MAC via the ARP table. |
 | **Compare** | What the scan found against what the plan says - including the address you planned that something else is already sitting on. |
 | **TFTP backup** | Watches UDP/69 while a robot runs an image backup, records the file it asks for exactly as sent, and says which step the backup stopped at - the address request, the address, the file request, or the server. Can receive the backup itself, to prove the robot and network are fine, and can probe the real server with a test file read back and compared. |
+| **Set static on all** | The same Set static over every ready row of the plan, one device at a time, after a confirmation that names each one. Stop lands between devices, never half way through one. |
+| **Ping** | One device, or every planned address at once into a Reach column. |
+| **Device diagnostics** | Reads a device's own account of itself over CIP - fault bits, address conflict detection, a configuration waiting for a reset, and every port's speed, duplex and error counters - and names the likely cause: a duplex mismatch, a damaged cable, multicast flooding. Read-only: it never clears a counter. Read twice to see which are still moving. |
+| **Service check** | Which of a short list of TCP services a device answers on - web page, Modbus, S7, OPC UA, EtherNet/IP - one connection at a time, nothing sent. |
+| **Scan history** | Every scan is kept, and the next scan of the same subnet says what changed: a device that moved, a module swapped, firmware changed, something new, something silent. |
+| **Subnet calculator** | Network, broadcast, host range and whether another address is on it - opening on the selected adapter's own subnet. And this PC's own adapter error counters, because a bad patch lead looks like a device problem from everywhere else. |
+| **Report** | The whole commissioning record as one HTML page for the customer: every device, what it was served, every write and its readback, the scans, and the full event log. Prints to PDF. |
 | **Record** | Every state-changing operation, in an append-only SQLite table inside the project file. |
 
 ## The parts that are different from the tool it replaces
@@ -35,7 +42,7 @@ before changing anything that sends a packet.**
 
 ## Getting it
 
-**[Download the latest release.](https://github.com/Robbuie/netcontrol/releases/latest)** Two ways,
+**[Download the latest release.](https://github.com/Robbuie/NetControl/releases/latest)** Two ways,
 same build, neither needing administrator rights, a driver, or a .NET runtime installed first:
 
 | | |

@@ -56,9 +56,41 @@ public sealed partial class ScanResultsViewModel : ObservableObject
     /// </summary>
     public ObservableCollection<PlanFinding> Findings { get; } = [];
 
+    /// <summary>
+    /// What changed since the last scan of the same subnet, worst first. Empty after a first scan of
+    /// a subnet, which has nothing to be compared with.
+    /// </summary>
+    public ObservableCollection<InventoryChange> Changes { get; } = [];
+
+    /// <summary>The comparison's one sentence, or null when there was nothing to compare with.</summary>
+    [ObservableProperty]
+    private string? _changesSummary;
+
     public bool HasResults => Rows.Count > 0;
 
     public bool HasFindings => Findings.Count > 0;
+
+    public bool HasChanges => Changes.Count > 0;
+
+    /// <summary>
+    /// Shows what changed since the previous scan of this subnet, or clears it when there was no
+    /// previous scan. See <see cref="InventoryDiff"/>.
+    /// </summary>
+    public void ApplyChanges(InventoryDiffResult? diff)
+    {
+        Changes.Clear();
+
+        if (diff is not null)
+        {
+            foreach (InventoryChange change in diff.Changes)
+            {
+                Changes.Add(change);
+            }
+        }
+
+        ChangesSummary = diff?.Summary;
+        OnPropertyChanged(nameof(HasChanges));
+    }
 
     /// <summary>Replaces the list with what a scan found.</summary>
     public void Apply(DiscoveryResult result)
@@ -141,6 +173,7 @@ public sealed partial class ScanResultsViewModel : ObservableObject
 
         Conformance = PlanConformanceReport.None;
         Findings.Clear();
+        ApplyChanges(null);
 
         OnPropertyChanged(nameof(HasResults));
         OnPropertyChanged(nameof(HasFindings));

@@ -19,7 +19,7 @@ cd "C:\Users\rjokr\Projects\BootP.DHCP"
 git add .
 git commit -m "NetControl"
 git branch -M main
-git remote add origin https://github.com/Robbuie/netcontrol.git
+git remote add origin https://github.com/Robbuie/NetControl.git
 git push -u origin main
 ```
 
@@ -32,14 +32,31 @@ this.
 
 ## Cutting a release
 
+**No .NET SDK is needed on this PC.** Same as the other three apps: GitHub builds and tests every
+push, so the PC only needs git. (`dotnet test` here fails with "No .NET SDKs were found" - that is
+expected, not a problem with the repository.)
+
 ```powershell
-# 1. Bump the version. One place: VersionPrefix in Directory.Build.props.
-# 2. Add a "## 0.6.0 - <what it is>" section to the top of CHANGELOG.md.
-# 3. Commit both, named the way the other three apps name theirs.
-git commit -am "0.6.0 - <what it is>"
-git tag v0.6.0
-git push --follow-tags
+cd C:\Users\rjokr\Projects\BootP.DHCP
+
+# 1. Bump the version (VersionPrefix in Directory.Build.props) and add a
+#    "## 0.8.0 - <what it is>" section to the top of CHANGELOG.md.
+# 2. Commit and push to main - no tag yet.
+git add -A
+git commit -m "0.8.0 - <what it is>"
+git push
+
+# 3. Wait for the "verify" run on that commit to go green:
+#    https://github.com/Robbuie/NetControl/actions
+#    If it is red, fix it in another commit and push again. Nothing has been released.
+# 4. Then tag the green commit. This is what builds and publishes the release.
+git tag v0.8.0
+git push --tags
 ```
+
+Tagging only after `verify` is green is the one difference from pushing everything at once: a tag
+on a commit that does not build leaves a version number pointing at nothing, and fixing it means
+moving a tag that has already been pushed.
 
 `.github/workflows/release.yml` runs the suite, publishes the single self-contained exe, wraps it
 with Inno Setup, and publishes a GitHub release with `gh` - the installer, the portable exe, a
@@ -92,7 +109,7 @@ Programs.
 
 ## How the update check works
 
-- On startup the app asks `https://api.github.com/repos/Robbuie/netcontrol/releases/latest` whether
+- On startup the app asks `https://api.github.com/repos/Robbuie/NetControl/releases/latest` whether
   there is a newer tag. **It says nothing unless there is.** A failed check at startup is silent
   too, because on a plant segment with no route out it fails every launch and a warning that is
   always present is one nobody reads. The failure is in the diagnostic log.

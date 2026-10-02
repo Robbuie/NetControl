@@ -40,7 +40,7 @@ public static class BuildInfo
     public const string RepositoryOwner = "Robbuie";
 
     /// <inheritdoc cref="RepositoryOwner"/>
-    public const string RepositoryName = "netcontrol";
+    public const string RepositoryName = "NetControl";
 
     /// <summary>
     /// The page a person opens to download a build. Not the API address the update check uses -

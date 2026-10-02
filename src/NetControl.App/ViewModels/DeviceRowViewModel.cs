@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using CommunityToolkit.Mvvm.ComponentModel;
 using NetControl.Core;
 using NetControl.Core.Persistence;
+using NetControl.Core.Reachability;
 
 namespace NetControl.App.ViewModels;
 
@@ -87,6 +88,17 @@ public sealed partial class DeviceRowViewModel : ObservableObject
     [ObservableProperty]
     private DeviceState _state = DeviceState.Planned;
 
+    /// <summary>
+    /// The last ping of the planned address, this session. Not stored and not a state: an echo reply
+    /// proves something answers at that address, not that it is the device the plan meant - which is
+    /// what the scan and the CIP read are for. Null until somebody pings.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ReachText))]
+    [NotifyPropertyChangedFor(nameof(ReachTooltip))]
+    [NotifyPropertyChangedFor(nameof(ReachIsSilent))]
+    private PingOutcome? _reach;
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasProblem))]
     [NotifyPropertyChangedFor(nameof(IsServable))]
@@ -132,6 +144,14 @@ public sealed partial class DeviceRowViewModel : ObservableObject
         && IsEmpty(HostName) && IsEmpty(PanelRef) && IsEmpty(Role) && IsEmpty(Notes);
 
     public string StatusTooltip => Problem ?? ServeNote ?? "Planned, valid, and will be served.";
+
+    /// <summary>"3 ms", "no reply", or blank before anybody has pinged.</summary>
+    public string ReachText => Reach?.Text ?? string.Empty;
+
+    public string? ReachTooltip => Reach?.Sentence;
+
+    /// <summary>Pinged and nothing answered - amber in the grid, never red: plenty of devices ignore ping.</summary>
+    public bool ReachIsSilent => Reach is { Replied: false };
 
     public static DeviceRowViewModel FromRecord(DeviceRecord record)
     {
