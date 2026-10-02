@@ -101,7 +101,10 @@ public class DeviceHealthReaderTests
         DeviceHealthReport second = await reader.ReadAsync(SimulatedAdapter.Address);
         DeviceHealthResult result = DeviceHealthAssessment.Assess(second, first);
 
-        HealthFinding finding = Assert.Single(result.Findings, f => f.Severity == EventSeverity.Warn);
+        // The simulator also answers on loopback while claiming 192.168.1.51, which is its own Warn.
+        HealthFinding finding = Assert.Single(
+            result.Findings, f => f.Message.Contains("arrived damaged", StringComparison.Ordinal));
+        Assert.Equal(EventSeverity.Warn, finding.Severity);
         Assert.Contains("25 frame(s) arrived damaged", finding.Message, StringComparison.Ordinal);
     }
 

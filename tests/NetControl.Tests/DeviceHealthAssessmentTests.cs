@@ -163,7 +163,9 @@ public class DeviceHealthAssessmentTests
         DeviceHealthResult result = DeviceHealthAssessment.Assess(after, before);
 
         Assert.Contains(result.Findings, f => f.Message.Contains("not the device", StringComparison.Ordinal));
-        Assert.DoesNotContain(result.Findings, f => f.Message.Contains("still counting", StringComparison.Ordinal));
+        // The total is still reported - as a total, Info, never as "in the last N s".
+        Assert.DoesNotContain(result.Findings, f => f.Message.Contains("in the last", StringComparison.Ordinal));
+        Assert.DoesNotContain(result.Findings, f => f.Severity == EventSeverity.Warn);
     }
 
     [Fact]
