@@ -732,13 +732,96 @@
                         Margin="0,0,10,0"
                         IsChecked="{Binding Tftp.IsWatchArmed}"
                         ToolTip="The watch answers each request with a refusal, on the adapter selected at the top of the window only. Stop the real TFTP server first - the watch will not share UDP/69 with it." />
+              <CheckBox Content="Receive the backup"
+                        VerticalAlignment="Center"
+                        Margin="0,0,10,0"
+                        IsChecked="{Binding Tftp.IsAcceptMode}"
+                        ToolTip="Accept mode: receive the backup into the folder instead of refusing it, to prove the robot and the network work. Never writes outside the folder. Takes effect at the next start." />
+              <CheckBox Content="Allow overwrite"
+                        VerticalAlignment="Center"
+                        Margin="0,0,10,0"
+                        IsChecked="{Binding Tftp.AllowOverwrite}"
+                        IsEnabled="{Binding Tftp.IsAcceptMode}"
+                        ToolTip="Let a received backup replace a file of the same name. Off, as most TFTP servers ship." />
               <Button Content="Watch TFTP" Command="{Binding Tftp.StartWatchCommand}" />
               <Button Content="Stop" Command="{Binding Tftp.StopWatchCommand}" />
               <Button Content="Re-check" Command="{Binding Tftp.RefreshCommand}"
                       ToolTip="Who holds UDP/69 on this PC, whether the firewall lets it in, and the backup folder." />
               <Button Content="Clear" Command="{Binding Tftp.ClearCommand}"
                       ToolTip="Empties the list and starts the verdict over, for the next attempt." />
+
+              <Border Style="{StaticResource ToolbarSeparator}" Height="20" />
+
+              <CheckBox Content="Probe a server"
+                        VerticalAlignment="Center"
+                        IsChecked="{Binding Tftp.IsProbeVisible}"
+                        ToolTip="Write a test file to the real TFTP server from this PC and read it back." />
             </WrapPanel>
+
+            <!-- The probe (PLAN-TFTP.md part E4): be the client, against the real server. The only
+                 thing in the tool that writes to plant infrastructure over TFTP, so it needs its own
+                 tick on every run, writes only the name typed here, and never deletes anything. -->
+            <Border DockPanel.Dock="Top"
+                    Margin="10,0,10,8"
+                    Padding="12,10"
+                    Background="{DynamicResource bg-2}"
+                    BorderBrush="{DynamicResource line}"
+                    BorderThickness="1"
+                    CornerRadius="{DynamicResource corner}"
+                    Visibility="{Binding Tftp.IsProbeVisible, Converter={StaticResource BoolToVisible}}">
+              <StackPanel>
+                <WrapPanel Orientation="Horizontal">
+                  <TextBlock Text="Server" VerticalAlignment="Center" Margin="0,0,6,0" />
+                  <TextBox Width="130" VerticalAlignment="Center"
+                           Text="{Binding Tftp.ProbeServer, UpdateSourceTrigger=PropertyChanged}"
+                           ToolTip="The TFTP server's address, as set on the controller." />
+                  <TextBlock Text="Test file" VerticalAlignment="Center" Margin="12,0,6,0" />
+                  <TextBox Width="230" VerticalAlignment="Center"
+                           Text="{Binding Tftp.ProbeFileName, UpdateSourceTrigger=PropertyChanged}"
+                           ToolTip="Written to the server and left there. Never the name of a real backup." />
+                  <TextBlock Text="Size (MB)" VerticalAlignment="Center" Margin="12,0,6,0" />
+                  <TextBox Width="50" VerticalAlignment="Center"
+                           Text="{Binding Tftp.ProbeSizeMegabytes, UpdateSourceTrigger=PropertyChanged}"
+                           ToolTip="40 MB by default: past the 32 MB a 512-byte block counter can reach, so one run shows whether this server survives the rollover." />
+                  <CheckBox Content="Read it back" Margin="12,0,0,0" VerticalAlignment="Center"
+                            IsChecked="{Binding Tftp.ProbeReadBack}" />
+                </WrapPanel>
+
+                <WrapPanel Orientation="Horizontal" Margin="0,8,0,0">
+                  <CheckBox VerticalAlignment="Center" Margin="0,0,12,0"
+                            IsChecked="{Binding Tftp.ProbeConfirmed}"
+                            Content="Write this file to that server - it is left there" />
+                  <Button Content="Run probe" Command="{Binding Tftp.RunProbeCommand}"
+                          ToolTip="Leaves from the adapter selected at the top of the window, the way the robot's backup does." />
+                  <Button Content="Cancel" Command="{Binding Tftp.RunProbeCancelCommand}" />
+                  <TextBlock Style="{StaticResource Muted}" Margin="12,0,0,0" VerticalAlignment="Center"
+                             Text="{Binding Tftp.ProbeStatus}" />
+                </WrapPanel>
+
+                <Grid Margin="0,10,0,0"
+                      Visibility="{Binding Tftp.ProbeSummary, Converter={StaticResource NotNullToVisible}}">
+                  <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                  </Grid.ColumnDefinitions>
+                  <Ellipse Grid.Column="0" Width="12" Height="12" Margin="0,3,8,0" VerticalAlignment="Top"
+                           Fill="{Binding Tftp.ProbeState, Converter={StaticResource ReadinessBrush}}" />
+                  <TextBlock Grid.Column="1" FontWeight="SemiBold" TextWrapping="Wrap"
+                             Text="{Binding Tftp.ProbeSummary}" />
+                </Grid>
+                <TextBlock Margin="20,4,0,0" Style="{StaticResource Muted}" TextWrapping="Wrap"
+                           Text="{Binding Tftp.ProbeRemediation}"
+                           Visibility="{Binding Tftp.ProbeRemediation, Converter={StaticResource NotNullToVisible}}" />
+                <ItemsControl ItemsSource="{Binding Tftp.ProbeFindings}" Margin="20,6,0,0">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                      <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="0,1"
+                                 Foreground="{DynamicResource txt-1}" />
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Border>
 
             <!-- This PC, graded the way the interface bar grades UDP/67 - but on its own row, because
                  the same fact (a TFTP server holding the port) is good news here and bad news there. -->
@@ -840,6 +923,10 @@
                   <Setter Property="ToolTip" Value="{Binding Tooltip}" />
                   <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                   <Style.Triggers>
+                    <!-- A finished transfer Accept mode received. -->
+                    <DataTrigger Binding="{Binding Kind}" Value="Reply">
+                      <Setter Property="Background" Value="{DynamicResource row-good}" />
+                    </DataTrigger>
                     <DataTrigger Binding="{Binding Kind}" Value="Warning">
                       <Setter Property="Background" Value="{DynamicResource row-warn}" />
                       <Setter Property="Foreground" Value="{DynamicResource warn}" />

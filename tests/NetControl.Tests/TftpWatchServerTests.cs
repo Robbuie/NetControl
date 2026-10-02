@@ -221,23 +221,6 @@ public class TftpWatchServerTests
     }
 
     [Fact]
-    public async Task RefusesToStartInAcceptModeRatherThanQuietlyObserving()
-    {
-        // A tool that reports itself as accepting backups while refusing every one of them would
-        // be worse than no tool. Accept is declared because the distinction shapes the type; it is
-        // not built, and saying so out loud is the whole point.
-        var server = new TftpWatchServer(
-            new FakeNicInventory(),
-            new TftpWatchOptions { Mode = TftpWatchMode.Accept, ListenPort = 0 });
-
-        TftpBindException thrown = await Assert.ThrowsAsync<TftpBindException>(() => server.RunAsync());
-
-        Assert.Contains("not built", thrown.Message, StringComparison.Ordinal);
-        Assert.NotNull(thrown.Remediation);
-        Assert.False(server.IsListening);
-    }
-
-    [Fact]
     public async Task RefusesToRunTwiceAtOnce()
     {
         await using TftpWireHarness harness = await TftpWireHarness.StartAsync();

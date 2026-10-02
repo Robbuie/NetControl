@@ -19,10 +19,12 @@ namespace NetControl.Core.Tftp;
 /// adapter in software, for the same reason the DHCP side does: binding per adapter is what makes
 /// a tool miss the request that explains everything.</para>
 ///
-/// <para><b>It transfers nothing.</b> The only thing it ever transmits is a TFTP error refusing a
-/// request, unicast to whoever just asked. Accepting a transfer is
-/// <see cref="TftpWatchMode.Accept"/> and is not built; starting in that mode is refused rather
-/// than quietly downgraded.</para>
+/// <para><b>In Observe mode it transfers nothing.</b> The only thing it transmits is a TFTP error
+/// refusing a request, unicast to whoever just asked. In <see cref="TftpWatchMode.Accept"/> mode it
+/// receives a write into <see cref="TftpWatchOptions.AcceptFolder"/> and serves a read from it, one
+/// transfer at a time, each from a fresh port bound to the address the request arrived on - so a
+/// multi-homed PC answers from the address the controller asked, which is the mistake a real server
+/// on such a PC most often makes.</para>
 ///
 /// <para>No UI dependency, and no console. Handlers run on the receive loop's thread, so a UI must
 /// marshal and no handler should block.</para>
@@ -33,7 +35,14 @@ public sealed class TftpWatchServer
     private readonly TftpWatchOptions _options;
     private readonly TftpRetransmitFilter _retransmits;
     private readonly TimeProvider _time;
+    private readonly Lock _transferGate = new();
     private int _running;
+
+    /// <summary>The transfer Accept mode is running, if any. One at a time, as the plan requires.</summary>
+    private (IPEndPoint Source, string FileName)? _active;
+
+    /// <summary>The run's token, so a transfer started from the receive loop stops when the watch does.</summary>
+    private CancellationToken _stopping;
 
     public TftpWatchServer(
         INicInventory nics,
@@ -57,6 +66,9 @@ public sealed class TftpWatchServer
     /// <summary>Raised once the socket is bound and the loop is about to start receiving.</summary>
     public event EventHandler? Listening;
 
+    /// <summary>Accept mode finished a transfer, either way. Raised on a worker thread.</summary>
+    public event EventHandler<TftpTransferEventArgs>? TransferFinished;
+
     public bool IsListening { get; private set; }
 
     public IPEndPoint? LocalEndPoint { get; private set; }
@@ -76,16 +88,15 @@ public sealed class TftpWatchServer
 
         try
         {
-            if (_options.Mode == TftpWatchMode.Accept)
+            if (_options.Mode == TftpWatchMode.Accept
+                && (string.IsNullOrWhiteSpace(_options.AcceptFolder) || !Directory.Exists(_options.AcceptFolder)))
             {
                 // Refuse rather than behave like Observe. A tool that reports itself as accepting
                 // backups while quietly refusing every one of them is worse than no tool at all.
                 throw new TftpBindException(
-                    "Accept mode is not built: this watch can record and refuse a transfer, but it "
-                    + "cannot receive one.")
+                    $"Accept mode needs a folder to receive into, and '{_options.AcceptFolder}' is not one.")
                 {
-                    Remediation = "Run in Observe mode to record what the controller asks for, and leave "
-                        + "the real TFTP server to do the transfer.",
+                    Remediation = "Pick the folder the backup should land in, then start again.",
                 };
             }
 
@@ -109,6 +120,7 @@ public sealed class TftpWatchServer
             using Socket socket = Bind(conflict);
 
             LocalEndPoint = socket.LocalEndPoint as IPEndPoint;
+            _stopping = cancellationToken;
             IsListening = true;
             Listening?.Invoke(this, EventArgs.Empty);
 
@@ -288,6 +300,12 @@ public sealed class TftpWatchServer
             return;
         }
 
+        if (_options.Mode == TftpWatchMode.Accept)
+        {
+            Accept(socket, request, source, arrivalIndex, nic, result.PacketInformation.Address, retransmit, now);
+            return;
+        }
+
         if (!_options.SendRefusal)
         {
             Raise(new TftpRequestEventArgs(
@@ -447,6 +465,412 @@ public sealed class TftpWatchServer
         SocketError.NetworkDown;
 
     private void Raise(TftpRequestEventArgs args) => RequestReceived?.Invoke(this, args);
+
+    // ------------------------------------------------------------------------------------------
+    //  Accept mode
+    // ------------------------------------------------------------------------------------------
+
+    private static readonly TftpTransferStats NoStats = new(0, 0, 0, 0, TimeSpan.Zero, 0, false);
+
+    /// <summary>
+    /// Decides what Accept mode does with one request, synchronously on the receive loop, and
+    /// starts the transfer on a worker if it is taking it. Every refusal names its reason in the
+    /// words a real server would have needed to use.
+    /// </summary>
+    private void Accept(
+        Socket listener,
+        TftpRequestMessage request,
+        IPEndPoint source,
+        int arrivalIndex,
+        NicInfo? nic,
+        IPAddress arrivalAddress,
+        bool retransmit,
+        DateTimeOffset now)
+    {
+        TftpRequestEventArgs Args(TftpWatchAction action, string reason) =>
+            new(now, request, source, arrivalIndex, nic, arrivalAddress, retransmit, action, reason);
+
+        bool duplicate = false;
+        string? busyWith = null;
+        lock (_transferGate)
+        {
+            if (_active is { } busy)
+            {
+                if (busy.Source.Equals(source) && string.Equals(busy.FileName, request.FileName, StringComparison.Ordinal))
+                {
+                    duplicate = true;
+                }
+                else
+                {
+                    busyWith = busy.FileName;
+                }
+            }
+        }
+
+        if (duplicate)
+        {
+            Raise(Args(TftpWatchAction.Ignored, "a retransmit of the request already being handled"));
+            return;
+        }
+
+        if (busyWith is not null)
+        {
+            RefuseInAccept(
+                listener,
+                source,
+                TftpErrorCode.NotDefined,
+                "Busy: one transfer at a time. Try again when the current one finishes.",
+                Args,
+                $"refused - already transferring '{busyWith}', and this tool takes one transfer at a time");
+            return;
+        }
+
+        if (request.Mode is not (TftpTransferMode.Octet or TftpTransferMode.NetAscii))
+        {
+            RefuseInAccept(
+                listener,
+                source,
+                TftpErrorCode.IllegalOperation,
+                $"Transfer mode '{request.RawMode}' is not supported. Use octet.",
+                Args,
+                $"refused - transfer mode '{request.RawMode}' is not one this tool accepts");
+            return;
+        }
+
+        string folder = _options.AcceptFolder ?? string.Empty;
+        if (!TftpAcceptPath.TryResolve(folder, request.FileName, out string? path, out string? problem))
+        {
+            RefuseInAccept(
+                listener,
+                source,
+                request.IsWrite ? TftpErrorCode.AccessViolation : TftpErrorCode.FileNotFound,
+                problem,
+                Args,
+                "refused - " + problem);
+            return;
+        }
+
+        if (request.IsWrite)
+        {
+            if (File.Exists(path) && !_options.AllowOverwrite)
+            {
+                RefuseInAccept(
+                    listener,
+                    source,
+                    TftpErrorCode.FileAlreadyExists,
+                    "That file already exists and overwriting is off.",
+                    Args,
+                    $"refused - {path} already exists and overwriting is off. Most TFTP servers ship with the "
+                        + "same setting, which is the classic reason a second backup under the same name fails");
+                return;
+            }
+
+            if (request.Options.TransferSize is { } announced && FreeBytes(path) is { } free && announced > free)
+            {
+                RefuseInAccept(
+                    listener,
+                    source,
+                    TftpErrorCode.DiskFull,
+                    "Not enough space for this file.",
+                    Args,
+                    $"refused - the controller announced {TftpTransfer.Number(announced)} bytes and only "
+                        + $"{TftpTransfer.Number(free)} are free");
+                return;
+            }
+        }
+        else if (!File.Exists(path))
+        {
+            RefuseInAccept(
+                listener,
+                source,
+                TftpErrorCode.FileNotFound,
+                "File not found.",
+                Args,
+                $"refused - {path} does not exist");
+            return;
+        }
+
+        lock (_transferGate)
+        {
+            _active = (source, request.FileName);
+        }
+
+        Raise(Args(
+            TftpWatchAction.Accepted,
+            request.IsWrite ? $"accepted - receiving into {path}" : $"accepted - sending {path}"));
+
+        string target = path;
+        _ = Task.Run(() => TransferAsync(request, source, arrivalAddress, target), CancellationToken.None);
+    }
+
+    private void RefuseInAccept(
+        Socket listener,
+        IPEndPoint source,
+        TftpErrorCode code,
+        string message,
+        Func<TftpWatchAction, string, TftpRequestEventArgs> args,
+        string reason)
+    {
+        try
+        {
+            listener.SendTo(TftpPacket.EncodeError(code, message), SocketFlags.None, source);
+            Raise(args(TftpWatchAction.Refused, reason));
+        }
+        catch (SocketException ex)
+        {
+            RaiseFault(
+                $"Could not send a refusal to {source}: {ex.SocketErrorCode} - {ex.Message}.",
+                "The request itself is in the log. If this repeats, check the route back to the controller.",
+                ex);
+            Raise(args(TftpWatchAction.SendFailed, reason + "; the refusal could not be sent"));
+        }
+    }
+
+    private async Task TransferAsync(TftpRequestMessage request, IPEndPoint source, IPAddress arrivalAddress, string path)
+    {
+        TftpTransferOutcome outcome;
+        Socket? socket = null;
+        try
+        {
+            // A fresh port - the transfer identifier - on the address the request arrived at, so the
+            // controller sees the answer come from the address it asked. A request sent to a
+            // broadcast address has no address of ours to answer from, so Windows chooses.
+            IPAddress local = arrivalAddress.Equals(IPAddress.Broadcast) ? IPAddress.Any : arrivalAddress;
+            socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+            socket.Bind(new IPEndPoint(local, 0));
+
+            outcome = request.IsWrite
+                ? await ReceiveFileAsync(socket, request, source, path).ConfigureAwait(false)
+                : await SendFileAsync(socket, request, source, path).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            outcome = new TftpTransferOutcome(false, NoStats, "The watch was stopped during the transfer.");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SocketException)
+        {
+            outcome = new TftpTransferOutcome(
+                false,
+                NoStats,
+                $"The transfer failed on this PC: {ex.Message}",
+                "Check the folder is writable, has room, and that nothing else has the file open.");
+        }
+        finally
+        {
+            // Released before the dally below, so the next request - a read-back of the file just
+            // received, say - is not refused as busy while this one is only waiting out its tail.
+            lock (_transferGate)
+            {
+                _active = null;
+            }
+        }
+
+        TransferFinished?.Invoke(this, new TftpTransferEventArgs(_time.GetUtcNow(), request, source, path, outcome));
+
+        if (socket is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (outcome.Succeeded && request.IsWrite)
+            {
+                await TftpTransfer.DallyAsync(socket, source, _options.TransferTimeout, _stopping).ConfigureAwait(false);
+            }
+        }
+        catch (Exception ex) when (ex is OperationCanceledException or SocketException or ObjectDisposedException)
+        {
+            // The file is safely in place; the tail of the conversation is best effort.
+        }
+        finally
+        {
+            socket.Dispose();
+        }
+    }
+
+    private async Task<TftpTransferOutcome> ReceiveFileAsync(
+        Socket socket,
+        TftpRequestMessage request,
+        IPEndPoint source,
+        string path)
+    {
+        (TftpOptions granted, int blockSize, TimeSpan timeout) =
+            Negotiate(request.Options, request.Options.TransferSize, _options.TransferTimeout);
+        byte[] opening = granted.IsEmpty ? TftpPacket.EncodeAck(0) : TftpPacket.EncodeOptionAck(granted);
+
+        // Written under a temporary name and renamed at the end, so a transfer that dies part way
+        // never leaves a truncated file under the real name for somebody to restore from later.
+        string partial = path + ".partial";
+        TftpTransferOutcome outcome;
+
+        await using (var file = new FileStream(
+            partial, FileMode.Create, FileAccess.Write, FileShare.None, 64 * 1024, useAsync: true))
+        {
+            socket.SendTo(opening, SocketFlags.None, source);
+            outcome = await TftpTransfer.ReceiveBlocksAsync(
+                    socket,
+                    source,
+                    file,
+                    blockSize,
+                    opening,
+                    first: null,
+                    timeout,
+                    _options.TransferMaxRetries,
+                    hash: null,
+                    progress: null,
+                    _stopping,
+                    dally: false)
+                .ConfigureAwait(false);
+        }
+
+        if (outcome.Succeeded)
+        {
+            File.Move(partial, path, overwrite: _options.AllowOverwrite);
+        }
+        else
+        {
+            TryDelete(partial);
+        }
+
+        return outcome;
+    }
+
+    private async Task<TftpTransferOutcome> SendFileAsync(
+        Socket socket,
+        TftpRequestMessage request,
+        IPEndPoint source,
+        string path)
+    {
+        long length = new FileInfo(path).Length;
+        (TftpOptions granted, int blockSize, TimeSpan timeout) =
+            Negotiate(request.Options, length, _options.TransferTimeout);
+
+        await using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, useAsync: true);
+
+        if (!granted.IsEmpty)
+        {
+            // With options, a read starts with an OACK and waits for ACK 0 before DATA 1.
+            byte[] oack = TftpPacket.EncodeOptionAck(granted);
+            socket.SendTo(oack, SocketFlags.None, source);
+
+            var buffer = new byte[TftpPacket.MaxDatagramLength];
+            int attempts = 0;
+            while (true)
+            {
+                TftpTransfer.Arrival arrival = await TftpTransfer
+                    .NextAsync(socket, buffer, source.Equals, timeout, _stopping)
+                    .ConfigureAwait(false);
+
+                if (arrival.Message is TftpAckMessage { Block: 0 })
+                {
+                    break;
+                }
+
+                if (arrival.Message is TftpErrorMessage error)
+                {
+                    return new TftpTransferOutcome(
+                        false,
+                        NoStats,
+                        $"{source} declined the options offered: {error.Explain().Summary}")
+                    {
+                        PeerError = error,
+                    };
+                }
+
+                if (arrival.Unreachable || (arrival.TimedOut && ++attempts > _options.TransferMaxRetries))
+                {
+                    return new TftpTransferOutcome(
+                        false,
+                        NoStats,
+                        $"{source} never acknowledged the options, so the file was not sent.",
+                        "The client may not support option negotiation properly.");
+                }
+
+                if (arrival.TimedOut)
+                {
+                    socket.SendTo(oack, SocketFlags.None, source);
+                }
+            }
+        }
+
+        return await TftpTransfer.SendBlocksAsync(
+                socket,
+                source,
+                file,
+                blockSize,
+                timeout,
+                _options.TransferMaxRetries,
+                hash: null,
+                progress: null,
+                _stopping)
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// What Accept mode agrees to. Block size and timeout as asked when in range; the transfer size
+    /// echoed for a write and filled in for a read. Window size is never granted - this is lockstep.
+    /// </summary>
+    private static (TftpOptions Granted, int BlockSize, TimeSpan Timeout) Negotiate(
+        TftpOptions requested,
+        long? transferSize,
+        TimeSpan defaultTimeout)
+    {
+        var granted = new List<TftpOption>();
+        int blockSize = TftpLimits.DefaultBlockSize;
+        TimeSpan timeout = defaultTimeout;
+
+        if (requested.BlockSize is { } asked && TftpLimits.IsBlockSizeInRange(asked))
+        {
+            blockSize = asked;
+            granted.Add(new TftpOption(TftpOption.BlockSizeName, asked.ToString(CultureInfo.InvariantCulture)));
+        }
+
+        if (requested.TimeoutSeconds is { } seconds && TftpLimits.IsTimeoutInRange(seconds))
+        {
+            timeout = TimeSpan.FromSeconds(seconds);
+            granted.Add(new TftpOption(TftpOption.TimeoutName, seconds.ToString(CultureInfo.InvariantCulture)));
+        }
+
+        if (requested.Has(TftpOption.TransferSizeName))
+        {
+            long size = transferSize ?? 0;
+            granted.Add(new TftpOption(TftpOption.TransferSizeName, size.ToString(CultureInfo.InvariantCulture)));
+        }
+
+        return (new TftpOptions(granted), blockSize, timeout);
+    }
+
+    private static long? FreeBytes(string path)
+    {
+        try
+        {
+            string? root = Path.GetPathRoot(Path.GetFullPath(path));
+            if (string.IsNullOrEmpty(root) || root.StartsWith(@"\\", StringComparison.Ordinal))
+            {
+                return null;
+            }
+
+            return new DriveInfo(root).AvailableFreeSpace;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException
+            or NotSupportedException)
+        {
+            return null;
+        }
+    }
+
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // Our own temporary file. Leaving it is untidy, not harmful.
+        }
+    }
 
     private void RaiseFault(string message, string? remediation, Exception? exception = null, bool isFatal = false) =>
         Fault?.Invoke(this, new TftpFaultEventArgs(_time.GetUtcNow(), message, remediation, exception, isFatal));

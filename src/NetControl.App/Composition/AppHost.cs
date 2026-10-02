@@ -67,7 +67,11 @@ public sealed class AppHost : IDisposable
             // constructs a view model wants an event log holding exactly what its own actions put
             // there, and one that starts with a line about a version is a test that has to know
             // about versions.
-            buildStamp: BuildInfo.Stamp());
+            buildStamp: BuildInfo.Stamp(),
+
+            // The TFTP tab's folder, vantage and probe server, remembered per PC in their own file.
+            tftpSettings: TftpSettingsStore.Load(_trace),
+            saveTftpSettings: settings => TftpSettingsStore.Save(settings, _trace));
 
         // Raised on a background thread by design, so the view model marshals. Subscribing before
         // Start means the first inventory arrives through the same path as every later one.

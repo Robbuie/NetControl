@@ -177,6 +177,11 @@ These are hard rules, not preferences:
   anything faster opt-in and clearly labelled.
 - **Serve mode must be explicit.** The BOOTP/DHCP server only answers MACs the user has listed.
   A rogue DHCP server on a plant network is a genuinely serious incident.
+- **Never write a file to a TFTP server the user did not name**, and never by default into the live
+  backup folder: the probe writes only the name typed, needs its tick on every run, and leaves its
+  file. **Never delete anything over TFTP.**
+- **Accept mode never writes outside the folder chosen, and never over an existing file unless told
+  to.** `TftpAcceptPath` is the only thing standing between an unauthenticated request and the disk.
 - **Every state-changing operation gets logged** to the append-only event log with timestamp,
   target, what was sent, and what came back.
 
@@ -742,9 +747,36 @@ E1, E3 (Observe) and E5. **Written in a session with no .NET SDK and not yet com
 - `BackupVerdictTests` and `TftpViewModelTests` drive all of it with hand-built events and no
   socket; `TftpViewModel.NoteFileRequest` is internal for that reason, the same way the recorders are.
 
-Still to do from PLAN-TFTP.md: **E4's probe** (be the client against the real server - the only piece
-that writes to plant infrastructure, so it has its own safety rules in that document) and **Accept
-mode**. The root folder path is not remembered between sessions yet.
+**Accept mode and the probe are built too** (PLAN-TFTP.md E3 Accept and E4), also without an SDK
+and not yet compiled.
+
+- `Tftp/TftpTransfer` - the lockstep send and receive loops, shared by both. Never answers a
+  duplicate ACK with a retransmit (the Sorcerer's Apprentice bug), refuses packets from any other
+  endpoint with error 5, sends block 0 after 65,535 and accepts 0 or 1, recording which. Results are
+  `TftpTransferOutcome` + `TftpTransferStats`; a stall exactly at block 65,536 says it is the rollover.
+- `Tftp/TftpProbe` - write a file of a known size to the real server, read it back, compare SHA-256.
+  Reports the address and port the server answered from (a multi-homed server answering from the
+  wrong address looks like silence to a controller), requested against granted options, the
+  firewall signature of a transfer that never gets past block 1, and a closed port. The payload is
+  `TftpProbePattern`, a position-derived stream, so 40 MB is never held in memory. 40 MB by default
+  because it crosses the 512-byte rollover. **Writes one file, the name typed, and never deletes.**
+- Accept mode in `TftpWatchServer` - receives a write into `AcceptFolder` and serves a read from it
+  (which is what lets the probe's read-back run against it), one transfer at a time, each from a
+  fresh port bound to the address the request arrived on. `TftpAcceptPath` keeps every name inside
+  the folder and words each refusal as the diagnosis a real server would need: a missing subfolder,
+  a `..`, a drive letter, a trailing space or dot Windows would silently drop. Writes go to
+  `<name>.partial` and are renamed at the end; an existing file is refused unless
+  `AllowOverwrite`. Finished transfers raise `TransferFinished`, which `TftpEventRecorder` records.
+- **The probe and Accept mode are tested against each other over loopback**
+  (`TftpAcceptAndProbeTests`), including a run at `blksize=8` that crosses the block counter's
+  rollover in both directions - so neither side's reading of RFC 1350 is only checked by itself.
+- The TFTP tab gains "Receive the backup" and "Allow overwrite" ticks and a probe panel whose
+  confirmation tick clears after every run. `BackupVerdict`'s fourth step turns green when Accept
+  mode receives the file, and the sentence then says the robot and the network are fine and the
+  real server's configuration is the cause. The folder, the vantage tick, the overwrite tick and the
+  probe's server are remembered in `%LOCALAPPDATA%\NetControl\tftp.json` (`TftpSettingsStore`).
+- `PlanValidation.TryParseIPv4` is public now; the probe's server address uses it for the same reason
+  the plan does.
 
 ### Pick up here
 
@@ -1046,8 +1078,10 @@ Not proven, and not provable at a desk:
   port its refusal left from so the observation survives the session. **`TftpFrames.cs` holds
   frames built to match what a client should emit, not a capture.** When a controller is next doing
   an image backup, take one and add the real ones; it is worth more than the rest of that file.
-- **Accept mode does not exist**, so nothing here has ever received a file. The watch can say what
-  was asked for and refuse it; the transfer itself is still the real server's job.
+- **Accept mode and the probe have only ever talked to each other.** Over loopback, in tests. No
+  controller has sent Accept mode a backup and the probe has never written to a real server, so how
+  either behaves against tftpd64, SolarWinds or a FANUC is unknown - which is exactly what the probe
+  exists to find out on its first real run.
 - **The TFTP tab has never been on screen and has never been compiled by anybody but CI.** It was
   written in a session with no SDK - see "The TFTP tab" under Current state. Same warning as every
   other blind-written screen here: a binding that does not resolve costs nothing at build time.

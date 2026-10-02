@@ -24,4 +24,10 @@ public enum TftpWatchAction
 
     /// <summary>Recorded, a refusal was attempted, and the send failed. The fault carries why.</summary>
     SendFailed = 2,
+
+    /// <summary>
+    /// Recorded and accepted: Accept mode is receiving the file, or sending one back. How it ended
+    /// arrives separately, on <see cref="TftpWatchServer.TransferFinished"/>.
+    /// </summary>
+    Accepted = 3,
 }

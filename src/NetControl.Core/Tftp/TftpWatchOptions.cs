@@ -70,4 +70,23 @@ public sealed record TftpWatchOptions
     /// something this tool arranges by starting.</para>
     /// </summary>
     public bool RefuseOnSeriousPortConflict { get; init; } = true;
+
+    /// <summary>
+    /// Where <see cref="TftpWatchMode.Accept"/> writes what it receives, and reads what it sends
+    /// back. Required in that mode; ignored in Observe. Nothing is ever written outside it.
+    /// </summary>
+    public string? AcceptFolder { get; init; }
+
+    /// <summary>
+    /// Whether a write may replace a file that already exists. Off by default, the way most TFTP
+    /// servers ship - and the classic reason a second backup with the same name is refused, so a
+    /// refusal for this reason says so in as many words.
+    /// </summary>
+    public bool AllowOverwrite { get; init; }
+
+    /// <summary>How long a transfer waits for each packet before sending its last one again.</summary>
+    public TimeSpan TransferTimeout { get; init; } = TimeSpan.FromSeconds(3);
+
+    /// <summary>Retries per packet before a transfer is abandoned.</summary>
+    public int TransferMaxRetries { get; init; } = TftpTransfer.DefaultMaxRetries;
 }

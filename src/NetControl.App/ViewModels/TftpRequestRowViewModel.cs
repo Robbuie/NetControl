@@ -51,6 +51,9 @@ public sealed partial class TftpRequestRowViewModel : ObservableObject
 
     public string? Remediation { get; }
 
+    /// <summary>A request row, as opposed to a transfer, a fault or a note. Only these collect retransmits.</summary>
+    public bool IsRequest { get; private init; }
+
     /// <summary>True when the request carries something that will break the backup - netascii mode, say.</summary>
     public bool HasConcern { get; private init; }
 
@@ -88,6 +91,28 @@ public sealed partial class TftpRequestRowViewModel : ObservableObject
                 ? $"[{nic.Index}] {nic.Name}"
                 : $"interface {e.ArrivalInterfaceIndex.ToString(CultureInfo.InvariantCulture)}",
             HasConcern = concerns.Count > 0,
+            IsRequest = true,
+        };
+    }
+
+    /// <summary>A transfer Accept mode finished: what moved and how, or why it stopped.</summary>
+    public static TftpRequestRowViewModel FromTransfer(TftpTransferEventArgs e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+
+        return new TftpRequestRowViewModel(
+            e.Timestamp,
+            e.Outcome.Succeeded ? LogEntryKind.Reply : LogEntryKind.Fault,
+            e.Describe(),
+            e.Outcome.Remediation)
+        {
+            Source = e.Source,
+            FileName = e.Request.FileName,
+            OperationText = e.IsWrite
+                ? (e.Outcome.Succeeded ? "Received" : "Receive failed")
+                : (e.Outcome.Succeeded ? "Sent back" : "Send failed"),
+            ModeText = e.Request.RawMode,
+            AdapterText = e.Path,
         };
     }
 
@@ -107,7 +132,8 @@ public sealed partial class TftpRequestRowViewModel : ObservableObject
     public bool IsSameRequestAs(TftpRequestEventArgs e)
     {
         ArgumentNullException.ThrowIfNull(e);
-        return Source is not null
+        return IsRequest
+            && Source is not null
             && Source.Equals(e.Source)
             && string.Equals(FileName, e.Request.FileName, StringComparison.Ordinal);
     }

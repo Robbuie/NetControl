@@ -1,6 +1,7 @@
 using System.Globalization;
 using NetControl.App.Serving;
 using NetControl.Core.Dhcp;
+using NetControl.Core.Tftp;
 
 namespace NetControl.App.Diagnostics;
 
@@ -53,12 +54,16 @@ public static class BackupVerdict
 
         if (lead is null)
         {
-            // Unreachable today - the transfer is never observed, so it is never Ready - but a
-            // future Accept mode will make it so, and the sentence for that case is easy to write now.
-            return new BackupVerdictResult(steps, "Every step of the backup was seen to work.", null, overall);
+            // Only Accept mode gets here: the file was received, so every step has been seen.
+            return new BackupVerdictResult(
+                steps,
+                "The whole backup worked into NetControl, so the robot and the network are fine.",
+                "If the same backup fails against the real TFTP server, the cause is that server's "
+                    + "configuration: its root folder, the file names it accepts, and its overwrite setting.",
+                overall);
         }
 
-        if (lead.Name == TransferStep && evidence.FileRequest is { } request)
+        if (lead.Name == TransferStep && !evidence.AcceptMode && evidence.FileRequest is { } request)
         {
             return new BackupVerdictResult(
                 steps,
@@ -162,6 +167,16 @@ public static class BackupVerdict
                 : string.Empty;
             string what = $"{source} asked to {verb} '{r.Request.FileName}' in {r.Request.RawMode} mode{same}";
 
+            if (e.AcceptMode && r.Action is TftpWatchAction.Refused or TftpWatchAction.SendFailed)
+            {
+                return new ReadinessCheck(
+                    FileRequestStep,
+                    ReadinessState.Warning,
+                    $"{what}, and it was {r.Reason}.",
+                    "A real TFTP server refuses this for the same reason. Fix the name or the folder, then "
+                        + "run the backup again.");
+            }
+
             IReadOnlyList<string> concerns = r.Request.Concerns();
             if (concerns.Count > 0)
             {
@@ -220,9 +235,33 @@ public static class BackupVerdict
 
     private static ReadinessCheck Transfer(BackupEvidence e)
     {
+        if (e.Transfer is { IsWrite: true } transfer)
+        {
+            return transfer.Outcome.Succeeded
+                ? new ReadinessCheck(
+                    TransferStep,
+                    ReadinessState.Ready,
+                    $"NetControl received '{transfer.Request.FileName}': {transfer.Outcome.Stats.Describe()}.")
+                : new ReadinessCheck(
+                    TransferStep,
+                    ReadinessState.Blocked,
+                    transfer.Outcome.Failure ?? "The transfer did not finish.",
+                    transfer.Outcome.Remediation);
+        }
+
         if (e.FileRequest is not { } r)
         {
             return ReadinessCheck.NotChecked(TransferStep, "Not observed yet.");
+        }
+
+        if (e.AcceptMode && r.Action == TftpWatchAction.Accepted)
+        {
+            return ReadinessCheck.NotChecked(TransferStep, $"Receiving '{r.Request.FileName}' now...");
+        }
+
+        if (e.AcceptMode)
+        {
+            return ReadinessCheck.NotChecked(TransferStep, "Not started - the request was refused.");
         }
 
         return ReadinessCheck.NotChecked(

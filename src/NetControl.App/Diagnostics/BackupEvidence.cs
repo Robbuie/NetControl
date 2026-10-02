@@ -49,4 +49,13 @@ public sealed record BackupEvidence
 
     /// <summary>File requests seen since the evidence was last cleared, retransmits included.</summary>
     public int FileRequests { get; init; }
+
+    /// <summary>
+    /// Whether the watch is receiving rather than refusing. In Accept mode a refusal is a real
+    /// diagnosis - the name or the folder a real server would also refuse - and the transfer can be seen.
+    /// </summary>
+    public bool AcceptMode { get; init; }
+
+    /// <summary>The last backup Accept mode finished receiving, either way.</summary>
+    public TftpTransferEventArgs? Transfer { get; init; }
 }

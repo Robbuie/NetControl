@@ -4,6 +4,22 @@ Newest first. The release workflow copies a version's section onto its GitHub re
 write it for the person deciding whether to install the update. The heading has to start
 `## <version>` for that to find it.
 
+## 0.7.0 - receive the backup, and probe the server
+
+- **Receive the backup.** Tick "Receive the backup" before pressing Watch TFTP and NetControl
+  accepts the robot's backup into the backup folder instead of refusing it. If the backup lands here
+  and fails against the real server, the robot and the network are fine and the server's settings
+  are the cause - the verdict says so. It never writes outside the folder, refuses a name the folder
+  cannot hold (a missing subfolder, a name Windows would change) in the words a real server would
+  need, and refuses to replace an existing file unless "Allow overwrite" is ticked.
+- **Probe a server.** Write a test file to the real TFTP server from this PC and read it back. It
+  reports whether the server accepts writes, which address it answers from, which options it grants,
+  whether the transfer's own ports get through the firewall, and - at the default 40 MB - whether the
+  server survives the block counter rolling over, which corrupts large images. It writes only the
+  file named, needs ticking for every run, and never deletes anything.
+- **The TFTP tab remembers** the backup folder, whether this PC is the backup server, the overwrite
+  setting and the probe's server address.
+
 ## 0.6.0 - the TFTP backup tab
 
 For the robot image backups that "never start". A FANUC backup over Ethernet is an address request

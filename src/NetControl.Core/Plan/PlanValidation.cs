@@ -268,7 +268,7 @@ public static class PlanValidation
     /// plausible things to find in a half-filled spreadsheet cell, and both would import silently as
     /// an address nobody typed. A commissioning file has to mean exactly what it says.</para>
     /// </summary>
-    private static bool TryParseIPv4(string text, [NotNullWhen(true)] out IPAddress? address)
+    public static bool TryParseIPv4(string text, [NotNullWhen(true)] out IPAddress? address)
     {
         address = null;
 

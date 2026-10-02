@@ -45,6 +45,9 @@ public sealed class TftpWatchController : IDisposable
 
     public event EventHandler<PersistenceFailedEventArgs>? RecordingFailed;
 
+    /// <summary>Accept mode finished receiving or sending a file.</summary>
+    public event EventHandler<TftpTransferEventArgs>? TransferFinished;
+
     public ServerRunState State
     {
         get
@@ -98,6 +101,7 @@ public sealed class TftpWatchController : IDisposable
         server.Listening += OnListening;
         server.RequestReceived += OnRequestReceived;
         server.Fault += OnFault;
+        server.TransferFinished += OnTransferFinished;
         recorder.RecordingFailed += OnRecordingFailed;
 
         Task run = Task.Run(() => server.RunAsync(cancellation.Token), CancellationToken.None);
@@ -255,12 +259,15 @@ public sealed class TftpWatchController : IDisposable
     {
         server.RequestReceived -= OnRequestReceived;
         server.Fault -= OnFault;
+        server.TransferFinished -= OnTransferFinished;
         recorder.RecordingFailed -= OnRecordingFailed;
     }
 
     private void OnRequestReceived(object? sender, TftpRequestEventArgs e) => RequestReceived?.Invoke(this, e);
 
     private void OnFault(object? sender, TftpFaultEventArgs e) => Fault?.Invoke(this, e);
+
+    private void OnTransferFinished(object? sender, TftpTransferEventArgs e) => TransferFinished?.Invoke(this, e);
 
     private void OnRecordingFailed(object? sender, PersistenceFailedEventArgs e) =>
         RecordingFailed?.Invoke(this, e);

@@ -165,7 +165,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         int listenPort = 67,
         DeviceDiscovery? discovery = null,
         string? buildStamp = null,
-        TftpWatchController? tftpWatch = null)
+        TftpWatchController? tftpWatch = null,
+        TftpSettings? tftpSettings = null,
+        Action<TftpSettings>? saveTftpSettings = null)
     {
         ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentNullException.ThrowIfNull(nics);
@@ -201,7 +203,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             () => InterfaceBar.SelectedAdapter,
             oui,
             _time,
-            TftpLimits.ServerPort);
+            TftpLimits.ServerPort,
+            settings: tftpSettings,
+            saveSettings: saveTftpSettings);
         Log = new RequestLogViewModel(oui, _planIndex, _time);
         Plan = new DeviceGridViewModel(oui);
 

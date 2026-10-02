@@ -11,6 +11,7 @@ using NetControl.Core.Dhcp;
 using NetControl.Core.Interfaces;
 using NetControl.Core.Oui;
 using NetControl.Core.Persistence;
+using NetControl.Core.Plan;
 using NetControl.Core.Tftp;
 
 namespace NetControl.App.ViewModels;
@@ -27,6 +28,11 @@ namespace NetControl.App.ViewModels;
 /// backup server is the system working. The same fact is good news on one row and bad on the
 /// other, so this tab keeps its own checks rather than adding rows to the interface bar, and the
 /// UDP/69 grade depends on whether the user says this PC <em>is</em> the backup server.</para>
+///
+/// <para>Two more things live here (PLAN-TFTP.md E3 Accept and E4): <b>Accept mode</b>, which
+/// receives the backup into the folder instead of refusing it, and the <b>probe</b>, which writes a
+/// test file to the real server and reads it back. The probe is the only thing in the tool that
+/// writes to plant infrastructure over TFTP, so it needs its own tick every time it runs.</para>
 ///
 /// <para><b>Refusing is a transmission</b>, so the watch is armed separately from being started,
 /// exactly as Serve is, and it only ever answers on the adapter selected at the top of the window.
@@ -58,6 +64,10 @@ public sealed partial class TftpViewModel : ObservableObject, IDisposable
     private MacAddress? _requester;
     private TftpRequestEventArgs? _fileRequest;
     private int _fileRequests;
+    private TftpTransferEventArgs? _transfer;
+
+    private readonly Action<TftpSettings>? _saveSettings;
+    private readonly Func<TftpProbeOptions, IProgress<TftpProbeProgress>?, CancellationToken, Task<TftpProbeResult>> _probe;
 
     private PortConflictReport? _lastPort;
     private bool _disposed;
@@ -118,6 +128,60 @@ public sealed partial class TftpViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private string? _errorRemediation;
 
+    /// <summary>Receive the backup into the folder instead of refusing it. Takes effect at the next start.</summary>
+    [ObservableProperty]
+    private bool _isAcceptMode;
+
+    /// <summary>Let a received backup replace a file of the same name. Off, as most servers ship.</summary>
+    [ObservableProperty]
+    private bool _allowOverwrite;
+
+    // ---- The probe (E4). ----
+
+    [ObservableProperty]
+    private bool _isProbeVisible;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RunProbeCommand))]
+    private string _probeServer = string.Empty;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RunProbeCommand))]
+    private string _probeFileName = string.Empty;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RunProbeCommand))]
+    private string _probeSizeMegabytes = (TftpProbeOptions.DefaultSizeBytes / (1024 * 1024)).ToString(CultureInfo.InvariantCulture);
+
+    [ObservableProperty]
+    private bool _probeReadBack = true;
+
+    /// <summary>
+    /// "Write this file to that server." Ticked for each run and cleared after it, because each run
+    /// leaves a file on a plant server and that should never be a habit.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RunProbeCommand))]
+    private bool _probeConfirmed;
+
+    [ObservableProperty]
+    private bool _isProbing;
+
+    [ObservableProperty]
+    private string? _probeStatus;
+
+    [ObservableProperty]
+    private double _probeFraction;
+
+    [ObservableProperty]
+    private string? _probeSummary;
+
+    [ObservableProperty]
+    private string? _probeRemediation;
+
+    [ObservableProperty]
+    private ReadinessState _probeState = ReadinessState.Unknown;
+
     public TftpViewModel(
         IUiDispatcher dispatcher,
         IPreflight preflight,
@@ -126,7 +190,10 @@ public sealed partial class TftpViewModel : ObservableObject, IDisposable
         Func<AdapterOption?> selectedAdapter,
         OuiDatabase oui,
         TimeProvider? timeProvider = null,
-        int listenPort = TftpLimits.ServerPort)
+        int listenPort = TftpLimits.ServerPort,
+        TftpSettings? settings = null,
+        Action<TftpSettings>? saveSettings = null,
+        Func<TftpProbeOptions, IProgress<TftpProbeProgress>?, CancellationToken, Task<TftpProbeResult>>? probe = null)
     {
         ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentNullException.ThrowIfNull(preflight);
@@ -143,6 +210,20 @@ public sealed partial class TftpViewModel : ObservableObject, IDisposable
         _oui = oui;
         _time = timeProvider ?? TimeProvider.System;
         _listenPort = listenPort;
+        _saveSettings = saveSettings;
+        _probe = probe ?? TftpProbe.RunAsync;
+
+        // Remembered from the last session. Set on the fields, not the properties, so loading them
+        // does not write them straight back.
+        if (settings is not null)
+        {
+            _rootFolder = settings.Folder ?? string.Empty;
+            _isBackupServer = settings.IsBackupServer;
+            _allowOverwrite = settings.AllowOverwrite;
+            _probeServer = settings.ProbeServer ?? string.Empty;
+        }
+
+        _probeFileName = TftpProbeOptions.DefaultFileName(_time.GetUtcNow().ToLocalTime());
 
         string port = PortText;
         _portCheck = ReadinessCheck.NotChecked($"UDP/{port}", "Not checked yet.", "Press Re-check.");
@@ -154,9 +235,13 @@ public sealed partial class TftpViewModel : ObservableObject, IDisposable
         _watch.Fault += OnFault;
         _watch.RecordingFailed += OnRecordingFailed;
         _watch.StateChanged += OnWatchStateChanged;
+        _watch.TransferFinished += OnTransferFinished;
 
         Recompute();
     }
+
+    /// <summary>The probe's findings, in the order it learned them.</summary>
+    public ObservableCollection<string> ProbeFindings { get; } = [];
 
     /// <summary>Newest first, like the request log, so nothing has to auto-scroll.</summary>
     public ObservableCollection<TftpRequestRowViewModel> Requests { get; } = [];
@@ -229,6 +314,7 @@ public sealed partial class TftpViewModel : ObservableObject, IDisposable
         _watch.Fault -= OnFault;
         _watch.RecordingFailed -= OnRecordingFailed;
         _watch.StateChanged -= OnWatchStateChanged;
+        _watch.TransferFinished -= OnTransferFinished;
         _watch.Dispose();
     }
 
@@ -292,10 +378,20 @@ public sealed partial class TftpViewModel : ObservableObject, IDisposable
             return;
         }
 
+        if (IsAcceptMode && (string.IsNullOrWhiteSpace(RootFolder) || !System.IO.Directory.Exists(RootFolder)))
+        {
+            SetError(
+                "Accept mode needs a folder to receive into.",
+                "Pick the folder the backup should land in with Browse, then start again.");
+            return;
+        }
+
         var options = new TftpWatchOptions
         {
             ListenPort = _listenPort,
-            Mode = TftpWatchMode.Observe,
+            Mode = IsAcceptMode ? TftpWatchMode.Accept : TftpWatchMode.Observe,
+            AcceptFolder = IsAcceptMode ? RootFolder : null,
+            AllowOverwrite = AllowOverwrite,
 
             // Requests on every adapter are recorded; only those on the selected one are refused,
             // because a refusal is a transmission and this tool does not transmit onto a segment
@@ -308,8 +404,11 @@ public sealed partial class TftpViewModel : ObservableObject, IDisposable
             await _watch.StartAsync(options, _project()).ConfigureAwait(true);
             AddRow(TftpRequestRowViewModel.Notice(
                 _time.GetUtcNow(),
-                $"Watching UDP/{PortText}. Requests on {adapter.DisplayName} are recorded and refused; "
-                    + "requests on any other adapter are recorded only."));
+                IsAcceptMode
+                    ? $"Receiving on UDP/{PortText} into {RootFolder}. Requests on {adapter.DisplayName} are "
+                        + "accepted; requests on any other adapter are recorded only."
+                    : $"Watching UDP/{PortText}. Requests on {adapter.DisplayName} are recorded and refused; "
+                        + "requests on any other adapter are recorded only."));
         }
         catch (TftpBindException ex)
         {
@@ -347,6 +446,7 @@ public sealed partial class TftpViewModel : ObservableObject, IDisposable
         _requester = null;
         _fileRequest = null;
         _fileRequests = 0;
+        _transfer = null;
         ClearError();
         Recompute();
     }
@@ -367,12 +467,149 @@ public sealed partial class TftpViewModel : ObservableObject, IDisposable
 
         RootCheck = GradeRoot(null);
         Recompute();
+        SaveSettings();
     }
 
     partial void OnRootFolderChanged(string value)
     {
         RootCheck = GradeRoot(null);
         Recompute();
+        SaveSettings();
+    }
+
+    partial void OnAllowOverwriteChanged(bool value) => SaveSettings();
+
+    partial void OnProbeServerChanged(string value) => SaveSettings();
+
+    partial void OnIsAcceptModeChanged(bool value) => Recompute();
+
+    private void SaveSettings()
+    {
+        if (_saveSettings is null)
+        {
+            return;
+        }
+
+        _saveSettings(new TftpSettings
+        {
+            Folder = string.IsNullOrWhiteSpace(RootFolder) ? null : RootFolder,
+            IsBackupServer = IsBackupServer,
+            AllowOverwrite = AllowOverwrite,
+            ProbeServer = string.IsNullOrWhiteSpace(ProbeServer) ? null : ProbeServer.Trim(),
+        });
+    }
+
+    /// <summary>
+    /// Writes a test file to the server and, by default, reads it back - PLAN-TFTP.md part E4. It
+    /// leaves from the adapter selected at the top of the window, so it takes the controller's path.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanRunProbe), IncludeCancelCommand = true)]
+    private async Task RunProbeAsync(CancellationToken cancellationToken)
+    {
+        if (!TryBuildProbe(out TftpProbeOptions? options, out string? problem))
+        {
+            ProbeState = ReadinessState.Blocked;
+            ProbeSummary = problem;
+            ProbeRemediation = null;
+            return;
+        }
+
+        IsProbing = true;
+        ProbeFindings.Clear();
+        ProbeSummary = $"Probing {options.Server} with '{options.FileName}'...";
+        ProbeRemediation = null;
+        ProbeState = ReadinessState.Unknown;
+        ProbeFraction = 0;
+
+        try
+        {
+            TftpProbeResult result = await _probe(options, new UiProgress(this), cancellationToken)
+                .ConfigureAwait(true);
+
+            ProbeState = result.Succeeded ? ReadinessState.Ready : ReadinessState.Blocked;
+            ProbeSummary = result.Summary;
+            ProbeRemediation = result.Remediation;
+            foreach (string finding in result.Findings)
+            {
+                ProbeFindings.Add(finding);
+            }
+
+            ProbeStatus = null;
+        }
+        catch (OperationCanceledException)
+        {
+            ProbeState = ReadinessState.Warning;
+            ProbeSummary = "Probe cancelled.";
+            ProbeRemediation = $"If the write had started, a partial '{options.FileName}' is on the server. The "
+                + "probe never deletes anything; remove it by hand.";
+            ProbeStatus = null;
+        }
+        catch (System.Net.Sockets.SocketException ex)
+        {
+            ProbeState = ReadinessState.Blocked;
+            ProbeSummary = $"Could not send from this PC: {ex.Message}";
+            ProbeRemediation = "Check the adapter selected at the top of the window still has its address.";
+            ProbeStatus = null;
+        }
+        finally
+        {
+            IsProbing = false;
+
+            // A fresh name and a fresh tick for the next run: each run leaves a file behind.
+            ProbeConfirmed = false;
+            ProbeFileName = TftpProbeOptions.DefaultFileName(_time.GetUtcNow().ToLocalTime());
+        }
+    }
+
+    private bool CanRunProbe() => TryBuildProbe(out _, out _) && ProbeConfirmed;
+
+    private bool TryBuildProbe(
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out TftpProbeOptions? options,
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(false)] out string? problem)
+    {
+        options = null;
+
+        if (!PlanValidation.TryParseIPv4(ProbeServer.Trim(), out IPAddress? server))
+        {
+            problem = "Type the TFTP server's address as four numbers, like 192.168.1.20.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(ProbeFileName))
+        {
+            problem = "Give the test file a name.";
+            return false;
+        }
+
+        if (!int.TryParse(ProbeSizeMegabytes.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out int megabytes)
+            || megabytes is < 0 or > 4096)
+        {
+            problem = "The size is a whole number of megabytes, 0 to 4096.";
+            return false;
+        }
+
+        options = new TftpProbeOptions
+        {
+            Server = server,
+            FileName = ProbeFileName.Trim(),
+            SizeBytes = megabytes * 1024L * 1024L,
+            ReadBack = ProbeReadBack,
+            LocalAddress = _selectedAdapter()?.Nic?.IPv4,
+        };
+        problem = null;
+        return true;
+    }
+
+    /// <summary>Carries probe progress onto the UI thread.</summary>
+    private sealed class UiProgress(TftpViewModel owner) : IProgress<TftpProbeProgress>
+    {
+        public void Report(TftpProbeProgress value) => owner.RunOnUi(() =>
+        {
+            owner.ProbeFraction = value.Fraction;
+            owner.ProbeStatus = value.Total > 0
+                ? $"{value.Stage}: {(value.Fraction * 100).ToString("N0", CultureInfo.InvariantCulture)}%"
+                : value.Stage;
+        });
     }
 
     private void OnRequestReceived(object? sender, TftpRequestEventArgs e) => RunOnUi(() => NoteFileRequest(e));
@@ -415,6 +652,22 @@ public sealed partial class TftpViewModel : ObservableObject, IDisposable
             SetError(e.Message, e.Remediation);
         }
     });
+
+    private void OnTransferFinished(object? sender, TftpTransferEventArgs e) => RunOnUi(() => NoteTransfer(e));
+
+    /// <summary>Accept mode finished a transfer. Internal for the same reason as <see cref="NoteFileRequest"/>.</summary>
+    internal void NoteTransfer(TftpTransferEventArgs e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+
+        AddRow(TftpRequestRowViewModel.FromTransfer(e));
+        if (e.IsWrite)
+        {
+            _transfer = e;
+        }
+
+        Recompute();
+    }
 
     private void OnRecordingFailed(object? sender, PersistenceFailedEventArgs e) => RunOnUi(() =>
         AddRow(TftpRequestRowViewModel.Notice(
@@ -535,6 +788,10 @@ public sealed partial class TftpViewModel : ObservableObject, IDisposable
 
     private ReadinessCheck GradeListener(ServerRunState state) => state switch
     {
+        ServerRunState.Listening when _watch.ActiveOptions?.Mode == TftpWatchMode.Accept => new ReadinessCheck(
+            "Watch",
+            ReadinessState.Ready,
+            $"Receiving on UDP/{PortText} into {_watch.ActiveOptions?.AcceptFolder}."),
         ServerRunState.Listening => new ReadinessCheck(
             "Watch",
             ReadinessState.Ready,
@@ -575,6 +832,9 @@ public sealed partial class TftpViewModel : ObservableObject, IDisposable
             WatchStopReason = _watch.StopReason,
             FileRequest = _fileRequest,
             FileRequests = _fileRequests,
+            AcceptMode = (_watch.ActiveOptions?.Mode
+                ?? (IsAcceptMode ? TftpWatchMode.Accept : TftpWatchMode.Observe)) == TftpWatchMode.Accept,
+            Transfer = _transfer,
         });
 
         Steps = result.Steps;

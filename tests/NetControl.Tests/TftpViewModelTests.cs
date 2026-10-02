@@ -217,6 +217,98 @@ public sealed class TftpViewModelTests : IDisposable
         Assert.Contains("Not checked yet", _viewModel.RootCheck.Summary, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void A_received_backup_completes_the_verdict_in_accept_mode()
+    {
+        _viewModel.IsAcceptMode = true;
+        _viewModel.NoteDhcpState(ServerRunState.Listening, DhcpServerMode.Serve);
+        _viewModel.NoteDhcpRequest(Events.Request(Robot, AssignmentDecision.Ignore("planned")));
+        _viewModel.NoteDhcpReply(Events.Reply(Events.Assignment(Robot, "192.168.1.51")));
+        _viewModel.NoteFileRequest(TftpRequests.Write(
+            "FROM00.IMG",
+            source: "192.168.1.51",
+            action: NetControl.Core.Tftp.TftpWatchAction.Accepted));
+        _viewModel.NoteTransfer(TftpRequests.Finished("FROM00.IMG", succeeded: true));
+
+        Assert.Equal(ReadinessState.Ready, _viewModel.Overall);
+        Assert.StartsWith("The whole backup worked", _viewModel.Verdict, StringComparison.Ordinal);
+        Assert.Equal(LogEntryKind.Reply, _viewModel.Requests[0].Kind);
+    }
+
+    [Fact]
+    public async Task The_probe_needs_an_address_and_a_tick_and_clears_the_tick_after_running()
+    {
+        NetControl.Core.Tftp.TftpProbeOptions? asked = null;
+        using var probing = new TftpViewModel(
+            new ImmediateDispatcher(),
+            _preflight,
+            new TftpWatchController(new FakeNicInventory()),
+            () => _project,
+            () => _adapter,
+            OuiDatabase.Empty,
+            new TestTimeProvider(Events.At),
+            probe: (options, _, _) =>
+            {
+                asked = options;
+                return Task.FromResult(new NetControl.Core.Tftp.TftpProbeResult
+                {
+                    Succeeded = true,
+                    Summary = "The server took a 40.0 MB write and gave back an identical copy.",
+                    FileName = options.FileName,
+                    Findings = ["finding one"],
+                });
+            });
+
+        Assert.False(probing.RunProbeCommand.CanExecute(null));
+
+        probing.ProbeServer = "192.168.1";
+        probing.ProbeConfirmed = true;
+        Assert.False(probing.RunProbeCommand.CanExecute(null));
+
+        probing.ProbeServer = "192.168.1.20";
+        Assert.True(probing.RunProbeCommand.CanExecute(null));
+
+        await probing.RunProbeCommand.ExecuteAsync(null);
+
+        Assert.NotNull(asked);
+        Assert.Equal(IPAddress.Parse("192.168.1.20"), asked.Server);
+        Assert.Equal(NetControl.Core.Tftp.TftpProbeOptions.DefaultSizeBytes, asked.SizeBytes);
+        Assert.StartsWith("netcontrol-probe-", asked.FileName, StringComparison.Ordinal);
+        Assert.Equal(ReadinessState.Ready, probing.ProbeState);
+        Assert.Equal("finding one", Assert.Single(probing.ProbeFindings));
+
+        // Every run leaves a file on a server, so the tick never carries over to the next one.
+        Assert.False(probing.ProbeConfirmed);
+        Assert.False(probing.RunProbeCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public void Settings_are_restored_and_saved_when_they_change()
+    {
+        TftpSettings? saved = null;
+        using var remembering = new TftpViewModel(
+            new ImmediateDispatcher(),
+            _preflight,
+            new TftpWatchController(new FakeNicInventory()),
+            () => _project,
+            () => _adapter,
+            OuiDatabase.Empty,
+            new TestTimeProvider(Events.At),
+            settings: new TftpSettings { Folder = @"C:\TFTP-Root", IsBackupServer = true, ProbeServer = "10.0.0.5" },
+            saveSettings: s => saved = s);
+
+        Assert.Equal(@"C:\TFTP-Root", remembering.RootFolder);
+        Assert.True(remembering.IsBackupServer);
+        Assert.Equal("10.0.0.5", remembering.ProbeServer);
+        Assert.Null(saved);
+
+        remembering.AllowOverwrite = true;
+
+        Assert.NotNull(saved);
+        Assert.True(saved.AllowOverwrite);
+        Assert.Equal(@"C:\TFTP-Root", saved.Folder);
+    }
+
     /// <summary>A preflight for UDP/69 whose port owners the test sets.</summary>
     private sealed class PortStubPreflight : IPreflight
     {

@@ -237,6 +237,70 @@ public sealed class BackupVerdictTests
         Assert.Equal(ReadinessState.Blocked, result.Overall);
     }
 
+    [Fact]
+    public void In_accept_mode_a_received_backup_turns_every_step_green()
+    {
+        BackupVerdictResult result = BackupVerdict.Evaluate(new BackupEvidence
+        {
+            DhcpState = ServerRunState.Listening,
+            DhcpMode = DhcpServerMode.Serve,
+            AddressRequests = 1,
+            Requester = Controller,
+            RequesterAttempts = 1,
+            ServedAddress = IPAddress.Parse("192.168.1.51"),
+            WatchState = ServerRunState.Listening,
+            AcceptMode = true,
+            FileRequest = TftpRequests.Write("FROM00.IMG", action: TftpWatchAction.Accepted),
+            Transfer = TftpRequests.Finished("FROM00.IMG", succeeded: true),
+        });
+
+        Assert.All(result.Steps, step => Assert.Equal(ReadinessState.Ready, step.State));
+        Assert.Equal(ReadinessState.Ready, result.Overall);
+        Assert.StartsWith("The whole backup worked into NetControl", result.Headline, StringComparison.Ordinal);
+        Assert.Contains("real TFTP server", result.Remediation, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void In_accept_mode_a_failed_transfer_is_the_blocked_step()
+    {
+        BackupVerdictResult result = BackupVerdict.Evaluate(new BackupEvidence
+        {
+            AddressRequests = 1,
+            RequesterAttempts = 1,
+            ServedAddress = IPAddress.Parse("192.168.1.51"),
+            WatchState = ServerRunState.Listening,
+            AcceptMode = true,
+            FileRequest = TftpRequests.Write("FROM00.IMG", action: TftpWatchAction.Accepted),
+            Transfer = TftpRequests.Finished("FROM00.IMG", succeeded: false),
+        });
+
+        ReadinessCheck transfer = Step(result, BackupVerdict.TransferStep);
+        Assert.Equal(ReadinessState.Blocked, transfer.State);
+        Assert.StartsWith(BackupVerdict.TransferStep, result.Headline, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void In_accept_mode_a_refused_request_is_a_real_diagnosis()
+    {
+        BackupVerdictResult result = BackupVerdict.Evaluate(new BackupEvidence
+        {
+            AddressRequests = 1,
+            RequesterAttempts = 1,
+            ServedAddress = IPAddress.Parse("192.168.1.51"),
+            WatchState = ServerRunState.Listening,
+            AcceptMode = true,
+            FileRequest = TftpRequests.Write(
+                "ROBOT1/FROM00.IMG",
+                action: TftpWatchAction.Refused,
+                reason: "refused - 'ROBOT1/FROM00.IMG' asks for the folder 'ROBOT1', which does not exist"),
+        });
+
+        ReadinessCheck file = Step(result, BackupVerdict.FileRequestStep);
+        Assert.Equal(ReadinessState.Warning, file.State);
+        Assert.Contains("does not exist", file.Summary, StringComparison.Ordinal);
+        Assert.StartsWith(BackupVerdict.FileRequestStep, result.Headline, StringComparison.Ordinal);
+    }
+
     private static ReadinessCheck Step(BackupVerdictResult result, string name) =>
         Assert.Single(result.Steps, s => s.Name == name);
 }
@@ -251,7 +315,8 @@ internal static class TftpRequests
         TftpTransferMode mode = TftpTransferMode.Octet,
         string rawMode = "octet",
         bool isRetransmit = false,
-        TftpWatchAction action = TftpWatchAction.Refused) =>
+        TftpWatchAction action = TftpWatchAction.Refused,
+        string reason = "recorded, and refused from UDP/69 so the controller stops rather than retransmitting") =>
         new(
             Events.At,
             new TftpRequestMessage(
@@ -267,5 +332,25 @@ internal static class TftpRequests
             IPAddress.Parse("192.168.1.10"),
             isRetransmit,
             action,
-            "recorded, and refused from UDP/69 so the controller stops rather than retransmitting");
+            reason);
+
+    public static TftpTransferEventArgs Finished(string fileName, bool succeeded, string source = "192.168.1.51")
+    {
+        TftpRequestEventArgs request = Write(fileName, source);
+        var stats = new TftpTransferStats(
+            succeeded ? 123_456 : 512, succeeded ? 242 : 1, 512, 0, TimeSpan.FromSeconds(2), 0, false);
+        var outcome = succeeded
+            ? new TftpTransferOutcome(true, stats)
+            : new TftpTransferOutcome(false, stats, "The transfer stopped at block 2.", "Packets are being lost.")
+            {
+                StalledAtBlock = 2,
+            };
+
+        return new TftpTransferEventArgs(
+            Events.At,
+            request.Request,
+            request.Source,
+            Path.Combine(Path.GetTempPath(), fileName),
+            outcome);
+    }
 }

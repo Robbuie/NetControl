@@ -13,19 +13,19 @@ namespace NetControl.Core.Tftp;
 public enum TftpWatchMode
 {
     /// <summary>
-    /// Record the request and refuse it, transferring nothing. The default, and the only mode
-    /// that is built.
+    /// Record the request and refuse it, transferring nothing. The default.
     /// </summary>
     Observe = 0,
 
     /// <summary>
-    /// Receive the file into a folder the user chose.
+    /// Receive the file into a folder the user chose, and send a file in that folder back when one
+    /// is asked for.
     ///
-    /// <para><b>Not built.</b> <see cref="TftpWatchServer"/> refuses to start in this mode rather
-    /// than silently behaving like <see cref="Observe"/> - a tool that says it is accepting
-    /// backups and is not would be worse than no tool. The member is declared because the
-    /// distinction shapes the type, in the same way <c>DeviceState.Verified</c> existed before
-    /// anything set it.</para>
+    /// <para>Its purpose is not to replace the backup server. It is to prove the network and the
+    /// controller are fine when the server's configuration is not: a backup that lands here and fails
+    /// against the real server has been narrowed to the server in one run. It never writes outside
+    /// the folder, never over an existing file unless told to, and takes one transfer at a time -
+    /// see <see cref="TftpAcceptPath"/> and <see cref="TftpWatchOptions.AllowOverwrite"/>.</para>
     /// </summary>
     Accept = 1,
 }

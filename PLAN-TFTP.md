@@ -16,7 +16,7 @@ ported logic.
 `spikes/Spike3.TftpWatch` is how any of it is run: **nothing in `NetControl.App` references
 `NetControl.Core.Tftp` yet**, so the spike is the whole surface, and BENCH.md Run 6b uses it.
 
-Still to do: E3's Accept mode and E4's probe. **E1's UDP/69 row, E3's watch and E5's verdict are now in the
+**Every part is now built: E3's Accept mode and E4's probe too, without an SDK and not yet compiled.** **E1's UDP/69 row, E3's watch and E5's verdict are now in the
 app, on a TFTP backup tab - written without an SDK and not yet compiled; see "As built in the app" at the end.**
 
 The problem it comes from is real and current: FANUC robots running PaintTool back their images up
@@ -329,8 +329,8 @@ the symptom here is one that never starts.
 |---|---|---|
 | E1 | UDP/69 in the bar, plus the root-folder check | Is the server running, reachable and writable - **in the app, on the TFTP tab's own row** |
 | E2 | The codec | Nothing on its own - **done, compiled, green** |
-| E3 | Watch, refusing | **Did the controller ask, and for what** - the answer to the stated symptom. **Observe done, compiled, green** |
-| E4 | Probe | The rollover question answered, and the ephemeral-port question answered |
+| E3 | Watch, refusing | **Did the controller ask, and for what** - the answer to the stated symptom. **Observe done, compiled, green; Accept built** |
+| E4 | Probe | The rollover question answered, and the ephemeral-port question answered - **built: `TftpProbe`** |
 | E5 | The verdict panel | One sentence instead of six tabs - **in the app: `BackupVerdict`** |
 
 **E1 before E2.** It is the only part that needs no new code in `Core` at all, and it covers the
@@ -444,3 +444,16 @@ decided while wiring them that this document did not settle:
 - **The verdict follows one device.** A segment can have several things asking for addresses; the
   sentence is about a FANUC when one is asking (by OUI), otherwise the latest asker, and a device
   NetControl has just served takes precedence over both.
+
+## Accept and the probe, as built
+
+- **One transfer engine, two users.** `TftpTransfer` holds the lockstep send and receive loops; the
+  probe uses them as a client and Accept mode as a server. That made it possible to test each against
+  the other over loopback instead of each against itself.
+- **Accept mode also serves reads**, from the same folder. It was not in the plan above; it is what
+  lets the probe's read-back run against Accept mode, and it makes a restore testable too.
+- **Rollover: send 0, accept 0 or 1.** The probe and Accept mode both send block 0 after 65,535, the
+  common choice, and both accept either when receiving and record which the other end used. A stall
+  at exactly block 65,536 is reported as the rollover by name.
+- **The probe's confirmation clears after every run**, and its default filename changes with it, so
+  writing to a plant server is never a habit and never overwrites the previous run's file.

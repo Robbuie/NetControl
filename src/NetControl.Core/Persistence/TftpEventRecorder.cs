@@ -44,6 +44,7 @@ public sealed class TftpEventRecorder : IDisposable
         _server.Listening += OnListening;
         _server.RequestReceived += OnRequestReceived;
         _server.Fault += OnFault;
+        _server.TransferFinished += OnTransferFinished;
     }
 
     /// <summary>
@@ -80,6 +81,7 @@ public sealed class TftpEventRecorder : IDisposable
         _server.Listening -= OnListening;
         _server.RequestReceived -= OnRequestReceived;
         _server.Fault -= OnFault;
+        _server.TransferFinished -= OnTransferFinished;
     }
 
     private void OnListening(object? sender, EventArgs e) => Guard("watch start", RecordListening);
@@ -88,6 +90,48 @@ public sealed class TftpEventRecorder : IDisposable
         Guard("request", () => RecordRequest(e));
 
     private void OnFault(object? sender, TftpFaultEventArgs e) => Guard("fault", () => RecordFault(e));
+
+    private void OnTransferFinished(object? sender, TftpTransferEventArgs e) =>
+        Guard("transfer", () => RecordTransfer(e));
+
+    /// <summary>
+    /// One row per finished Accept-mode transfer. A received backup is the most consequential thing
+    /// this module does - it writes a file a restore may one day depend on - so the row carries the
+    /// path, the size, the block size and whether the block counter wrapped.
+    /// </summary>
+    internal bool RecordTransfer(TftpTransferEventArgs e)
+    {
+        ArgumentNullException.ThrowIfNull(e);
+
+        TftpTransferStats stats = e.Outcome.Stats;
+        EventDetail detail = new EventDetail()
+            .Add("operation", e.IsWrite ? "receive" : "send")
+            .Add("fileName", e.Request.FileName)
+            .Add("path", e.Path)
+            .Add("succeeded", e.Outcome.Succeeded)
+            .Add("bytes", stats.Bytes)
+            .Add("blocks", stats.Blocks)
+            .Add("blockSize", stats.BlockSize)
+            .Add("retransmits", stats.Retransmits)
+            .Add("wraps", stats.Wraps)
+            .Add("rolledToOne", stats.PeerRolledOverToOne)
+            .Add("elapsedMs", (long)stats.Elapsed.TotalMilliseconds)
+            .Add("failure", e.Outcome.Failure)
+            .Add("remediation", e.Outcome.Remediation);
+
+        if (e.Outcome.StalledAtBlock is long stalled)
+        {
+            detail.Add("stalledAtBlock", stalled);
+        }
+
+        _store.Events.Append(
+            e.Outcome.Succeeded ? EventSeverity.Info : EventSeverity.Warn,
+            EventCategory.Tftp,
+            e.Describe(),
+            e.Source.Address.ToString(),
+            detail: detail);
+        return true;
+    }
 
     // Internal rather than inlined into the handlers so the tests can drive them with a hand-built
     // event and no socket at all - the same reason DhcpEventRecorder does it.
