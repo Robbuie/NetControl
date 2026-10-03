@@ -663,14 +663,23 @@ public sealed partial class DeviceGridViewModel : ObservableObject
     /// edit path revalidates the row's cells, which clears a problem - and the problem a row is
     /// most likely to be showing at this moment is the failed Set static that just taught it.
     /// </summary>
-    private static bool ApplyKeepingProblem(DeviceRowViewModel row, DeviceQuirks quirks)
+    private bool ApplyKeepingProblem(DeviceRowViewModel row, DeviceQuirks quirks)
     {
+        // The edit path also clears the grid's error banner once the row is saved - and the banner
+        // is saying why the Set static that taught this quirk failed. Both are put back.
         string? problem = row.Problem;
+        string? error = ErrorMessage;
+        string? remediation = ErrorRemediation;
         bool changed = row.ApplyQuirks(quirks);
 
         if (changed && problem is not null && row.Problem is null)
         {
             row.Problem = problem;
+        }
+
+        if (changed && error is not null && ErrorMessage is null)
+        {
+            SetError(error, remediation);
         }
 
         return changed;

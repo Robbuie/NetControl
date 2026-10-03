@@ -35,9 +35,10 @@ public class DcpTests
 
         Assert.Equal(Et200.ToArray(), frame[..6]);
 
-        // FrameID FEFD, Set, request, xid 7, no delay, length 8; block 02 02, length 5, qualifier 0001, "io1", pad.
+        // FrameID FEFD, Set, request, xid 7, no delay, DCPDataLength 10 - the block's pad byte counts;
+        // block 02 02, block length 5 (the pad does not), qualifier 0001, "io1", pad.
         Assert.Equal(
-            new byte[] { 0xFE, 0xFD, 0x04, 0x00, 0, 0, 0, 7, 0, 0, 0, 8, 0x02, 0x02, 0x00, 0x05, 0x00, 0x01, (byte)'i', (byte)'o', (byte)'1', 0x00 },
+            new byte[] { 0xFE, 0xFD, 0x04, 0x00, 0, 0, 0, 7, 0, 0, 0, 10, 0x02, 0x02, 0x00, 0x05, 0x00, 0x01, (byte)'i', (byte)'o', (byte)'1', 0x00 },
             frame[14..]);
     }
 
