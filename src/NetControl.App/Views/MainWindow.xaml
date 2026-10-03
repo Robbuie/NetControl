@@ -13,10 +13,13 @@
         WindowStartupLocation="CenterScreen"
         Style="{StaticResource ChromeWindow}">
 
-  <appearance:Chrome.TitleContent>
+  <!-- The title-bar menu is a resource, and MainWindow's constructor hands it to the shared title
+       bar through Chrome.TitleContent. Attached-property element syntax for that was read by the
+       markup compiler as a second child of the Window (MC3089), so it is wired up in code instead. -->
+  <Window.Resources>
       <!-- The menu lives in the title bar, File Manager-style: one row that both drags the window
            and holds the menus, instead of a title bar and a menu bar stacked. -->
-      <Menu Background="Transparent" BorderThickness="0" Padding="0" VerticalAlignment="Center">
+      <Menu x:Key="TitleMenu" Background="Transparent" BorderThickness="0" Padding="0" VerticalAlignment="Center">
         <!-- There is no Save. SQLite writes as the plan is typed, so a project can only ever be
              missing a location, never its contents - which is what Save as gives it. -->
         <MenuItem Header="_File">
@@ -80,7 +83,7 @@
           <MenuItem Header="_About NetControl" Click="OnAbout" />
         </MenuItem>
       </Menu>
-  </appearance:Chrome.TitleContent>
+  </Window.Resources>
 
   <DockPanel>
 

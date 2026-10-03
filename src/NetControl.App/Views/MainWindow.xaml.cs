@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using Microsoft.Win32;
+using NetControl.App.Appearance;
 using NetControl.App.Composition;
 using NetControl.App.Diagnostics;
 using NetControl.App.ViewModels;
@@ -30,6 +31,9 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+
+        // The menu goes in the title bar, beside the title - see the comment on TitleMenu in the XAML.
+        Chrome.SetTitleContent(this, Resources["TitleMenu"]);
         DataContextChanged += OnDataContextChanged;
     }
 
