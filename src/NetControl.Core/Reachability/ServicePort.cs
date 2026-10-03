@@ -21,6 +21,7 @@ public sealed record ServicePort(int Port, string Name, string Meaning)
         new(443, "HTTPS", "the device's own web page, encrypted"),
         new(502, "Modbus/TCP", "Modbus registers - drives, meters, gateways"),
         new(4840, "OPC UA", "an OPC UA server"),
+        new(5007, "MELSEC MC", "a Mitsubishi Ethernet module's MELSOFT / MC protocol port"),
         new(18245, "GE SRTP", "a GE / Emerson PACSystems controller"),
         new(20000, "DNP3", "a utility-style RTU or protection relay"),
         new(44818, "EtherNet/IP", "CIP explicit messaging - what Set static and the diagnostics read use"),

@@ -59,6 +59,43 @@ public sealed class DeviceGridCommissioningTests : IDisposable
     }
 
     /// <summary>
+    /// The lie is learned: the row carries the quirk afterwards, the project file has it, the record
+    /// says why - and the row still shows the failure that taught it.
+    /// </summary>
+    [Fact]
+    public async Task LearnsTheQuirkTheDeviceJustShowedAndKeepsTheFailureOnTheRow()
+    {
+        await using SimulatedAdapter adapter = await SimulatedAdapter.StartAsync(SimQuirk.LiesAboutWriteSuccess);
+
+        (DeviceGridViewModel grid, DeviceRowViewModel row) = PlannedAt(adapter);
+
+        await grid.SetStaticCommand.ExecuteAsync(null);
+
+        Assert.True(row.Quirks.HasFlag(NetControl.Core.DeviceQuirks.LiesAboutWriteSuccess));
+        Assert.Equal("lies", row.QuirksText);
+        Assert.True(row.HasProblem);
+        Assert.True(_project.Devices.All().Single(d => d.Id == row.Id).Quirks
+            .HasFlag(NetControl.Core.DeviceQuirks.LiesAboutWriteSuccess));
+        Assert.Contains(_project.Events.All(), e => e.Message.StartsWith("Learned about", StringComparison.Ordinal));
+    }
+
+    /// <summary>A hand edit is one row in the record naming what changed.</summary>
+    [Fact]
+    public async Task AHandEditIsRecorded()
+    {
+        await using SimulatedAdapter adapter = await SimulatedAdapter.StartAsync();
+
+        (DeviceGridViewModel grid, DeviceRowViewModel row) = PlannedAt(adapter);
+
+        grid.EditQuirks(row, NetControl.Core.DeviceQuirks.SlowResponses);
+        grid.EditQuirks(row, NetControl.Core.DeviceQuirks.SlowResponses);
+
+        EventRecord edit = Assert.Single(_project.Events.All(), e => e.Message.Contains("edited by hand", StringComparison.Ordinal));
+        Assert.Contains("added slow", edit.Message, StringComparison.Ordinal);
+        Assert.Equal(NetControl.Core.DeviceQuirks.SlowResponses, _project.Devices.All().Single(d => d.Id == row.Id).Quirks);
+    }
+
+    /// <summary>
     /// Every step, as it happened, in the append-only table - not a summary written at the end. If
     /// the connection drops half way through, what was already sent is all anybody has to go on.
     /// </summary>

@@ -167,7 +167,7 @@ public class EventLogTests
         ExecuteRaw(
             temp.FilePath,
             "INSERT INTO Event (Utc, Severity, Category, Message) "
-                + "VALUES ('2026-08-06T09:00:00.0000000Z', 'info', 'profinet', 'DCP Set Name');");
+                + "VALUES ('2026-08-06T09:00:00.0000000Z', 'info', 'ethercat', 'DCP Set Name');");
 
         using ProjectStore reopened = temp.Open();
         EventRecord row = reopened.Events.All().Single(e => e.Message == "DCP Set Name");

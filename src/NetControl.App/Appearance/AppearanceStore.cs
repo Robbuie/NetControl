@@ -49,6 +49,14 @@ public static class AppearanceStore
                 File.ReadAllText(FilePath),
                 ReadOptions);
 
+            // A file written before 0.9.0 has no "follow": somebody picked that theme on purpose,
+            // so it stays put rather than starting to follow Windows by surprise. Only a first run
+            // with no file at all gets the new default, which follows.
+            if (read is not null && read.Follow is null)
+            {
+                read = read with { Follow = Theme.FollowOff };
+            }
+
             AppearanceChoice choice = Theme.Normalise(read);
             log.Info($"Appearance read from {FilePath}: {choice.Describe()}.");
             return choice;

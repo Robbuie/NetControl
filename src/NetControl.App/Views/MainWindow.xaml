@@ -4,90 +4,95 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="clr-namespace:NetControl.App.ViewModels"
+        xmlns:appearance="clr-namespace:NetControl.App.Appearance"
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:MainViewModel}"
         Title="NetControl - BOOTP/DHCP"
         Height="720" Width="1180"
         MinHeight="480" MinWidth="900"
         WindowStartupLocation="CenterScreen"
-        Background="{DynamicResource bg-0}"
-        FontFamily="{DynamicResource font}"
-        FontSize="{DynamicResource ui-font}"
-        Foreground="{DynamicResource txt-0}">
+        Style="{StaticResource ChromeWindow}">
+
+  <appearance:Chrome.TitleContent>
+      <!-- The menu lives in the title bar, File Manager-style: one row that both drags the window
+           and holds the menus, instead of a title bar and a menu bar stacked. -->
+      <Menu Background="Transparent" BorderThickness="0" Padding="0" VerticalAlignment="Center">
+        <!-- There is no Save. SQLite writes as the plan is typed, so a project can only ever be
+             missing a location, never its contents - which is what Save as gives it. -->
+        <MenuItem Header="_File">
+          <MenuItem Header="_New project" Click="OnNewProject" />
+          <MenuItem Header="_Open project..." Click="OnOpenProject" />
+          <MenuItem Header="Save _as..." Click="OnSaveProjectAs"
+                    ToolTip="Copies this project - plan, assignments and the whole event log - to a file, and keeps working there." />
+          <Separator />
+          <MenuItem Header="_Import plan from CSV..." Click="OnImportPlan"
+                    ToolTip="Checks the whole file first. If anything in it is wrong, nothing is imported and every problem is listed with its line number." />
+          <MenuItem Header="_Export plan to CSV..." Click="OnExportPlan"
+                    ToolTip="The plan only. What was served and what was verified stay in the project's event log, which nothing can edit." />
+          <Separator />
+          <MenuItem Header="Export commissioning _report..." Click="OnExportReport"
+                    ToolTip="The whole record as one HTML page for the customer: every device, what it was served, every write and its readback, the scans and the full event log. Prints to PDF from any browser." />
+          <Separator />
+          <MenuItem Header="E_xit" Click="OnExit" />
+        </MenuItem>
+        <MenuItem Header="_Listener">
+          <MenuItem Header="_Watch" Command="{Binding StartWatchCommand}" />
+          <MenuItem Header="_Serve" Command="{Binding StartServeCommand}" />
+          <MenuItem Header="Sto_p" Command="{Binding StopCommand}" />
+          <Separator />
+          <MenuItem Header="_Re-check port and firewall" Command="{Binding RefreshEnvironmentCommand}" />
+          <Separator />
+          <MenuItem Header="DHCP _boot options..." Click="OnBootOptions"
+                    ToolTip="Next server, TFTP server, boot file, domain and DNS for every reply this project serves. Blank by default." />
+          <Separator />
+          <MenuItem Header="Reply by per-socket _bind"
+                    IsCheckable="True"
+                    IsChecked="{Binding UsePerSocketBind}"
+                    ToolTip="Off uses IP_UNICAST_IF on the listening socket. That path has only ever been proved against a listener on this machine, so the bind is the default until real hardware says otherwise." />
+        </MenuItem>
+        <MenuItem Header="_View">
+          <!-- Theme, accent and density. The same three axes as the DWG viewer and the Redline PDF
+               app, and the same design system underneath - so a person who set one of those up the
+               way they like it will find this one already familiar. -->
+          <MenuItem Header="_Appearance..." Click="OnAppearance"
+                    ToolTip="Theme, accent colour and how much room the chrome takes. Applied as you choose, saved when you press OK." />
+        </MenuItem>
+        <MenuItem Header="_Tools">
+          <MenuItem Header="_Subnet calculator..." Click="OnSubnetCalculator"
+                    ToolTip="Network, broadcast, host range and mask for an address and prefix - and whether another address is on it. Opens on the selected adapter's own subnet." />
+          <Separator />
+          <MenuItem Header="_Ping the plan" Command="{Binding Diagnostics.PingPlanCommand}"
+                    ToolTip="Pings every planned address and fills in the Reach column." />
+          <MenuItem Header="_Diagnostics..." Click="OnDiagnoseSelectedRow"
+                    ToolTip="Opens the Diagnostics tab on the selected plan row's device." />
+        </MenuItem>
+        <MenuItem Header="_Help">
+          <!-- The startup check is silent unless there is a newer build. This one always answers,
+               including "could not reach it", because somebody pressing it is waiting to be told. -->
+          <MenuItem Header="Check for _updates" Click="OnCheckForUpdates"
+                    ToolTip="Asks the repository whether a newer build has been published, and offers to download and install it. Refused while the listener is running or a device is being commissioned." />
+          <MenuItem Header="_Releases page" Click="OnOpenReleases"
+                    ToolTip="Opens the download page in a browser. Needs a machine with a route out - most plant laptops do not have one." />
+          <Separator />
+          <MenuItem Header="Open the _diagnostic log folder" Click="OnOpenLogFolder"
+                    ToolTip="Why the application misbehaved. Not the commissioning record - that is the event log inside the project file, and nothing can edit it." />
+          <Separator />
+          <MenuItem Header="_About NetControl" Click="OnAbout" />
+        </MenuItem>
+      </Menu>
+  </appearance:Chrome.TitleContent>
 
   <DockPanel>
 
-    <Menu DockPanel.Dock="Top">
-      <!-- There is no Save. SQLite writes as the plan is typed, so a project can only ever be
-           missing a location, never its contents - which is what Save as gives it. -->
-      <MenuItem Header="_File">
-        <MenuItem Header="_New project" Click="OnNewProject" />
-        <MenuItem Header="_Open project..." Click="OnOpenProject" />
-        <MenuItem Header="Save _as..." Click="OnSaveProjectAs"
-                  ToolTip="Copies this project - plan, assignments and the whole event log - to a file, and keeps working there." />
-        <Separator />
-        <MenuItem Header="_Import plan from CSV..." Click="OnImportPlan"
-                  ToolTip="Checks the whole file first. If anything in it is wrong, nothing is imported and every problem is listed with its line number." />
-        <MenuItem Header="_Export plan to CSV..." Click="OnExportPlan"
-                  ToolTip="The plan only. What was served and what was verified stay in the project's event log, which nothing can edit." />
-        <Separator />
-        <MenuItem Header="Export commissioning _report..." Click="OnExportReport"
-                  ToolTip="The whole record as one HTML page for the customer: every device, what it was served, every write and its readback, the scans and the full event log. Prints to PDF from any browser." />
-        <Separator />
-        <MenuItem Header="E_xit" Click="OnExit" />
-      </MenuItem>
-      <MenuItem Header="_Listener">
-        <MenuItem Header="_Watch" Command="{Binding StartWatchCommand}" />
-        <MenuItem Header="_Serve" Command="{Binding StartServeCommand}" />
-        <MenuItem Header="Sto_p" Command="{Binding StopCommand}" />
-        <Separator />
-        <MenuItem Header="_Re-check port and firewall" Command="{Binding RefreshEnvironmentCommand}" />
-        <Separator />
-        <MenuItem Header="Reply by per-socket _bind"
-                  IsCheckable="True"
-                  IsChecked="{Binding UsePerSocketBind}"
-                  ToolTip="Off uses IP_UNICAST_IF on the listening socket. That path has only ever been proved against a listener on this machine, so the bind is the default until real hardware says otherwise." />
-      </MenuItem>
-      <MenuItem Header="_View">
-        <!-- Theme, accent and density. The same three axes as the DWG viewer and the Redline PDF
-             app, and the same design system underneath - so a person who set one of those up the
-             way they like it will find this one already familiar. -->
-        <MenuItem Header="_Appearance..." Click="OnAppearance"
-                  ToolTip="Theme, accent colour and how much room the chrome takes. Applied as you choose, saved when you press OK." />
-      </MenuItem>
-      <MenuItem Header="_Tools">
-        <MenuItem Header="_Subnet calculator..." Click="OnSubnetCalculator"
-                  ToolTip="Network, broadcast, host range and mask for an address and prefix - and whether another address is on it. Opens on the selected adapter's own subnet." />
-        <Separator />
-        <MenuItem Header="_Ping the plan" Command="{Binding Diagnostics.PingPlanCommand}"
-                  ToolTip="Pings every planned address and fills in the Reach column." />
-        <MenuItem Header="_Diagnostics..." Click="OnDiagnoseSelectedRow"
-                  ToolTip="Opens the Diagnostics tab on the selected plan row's device." />
-      </MenuItem>
-      <MenuItem Header="_Help">
-        <!-- The startup check is silent unless there is a newer build. This one always answers,
-             including "could not reach it", because somebody pressing it is waiting to be told. -->
-        <MenuItem Header="Check for _updates" Click="OnCheckForUpdates"
-                  ToolTip="Asks the repository whether a newer build has been published, and offers to download and install it. Refused while the listener is running or a device is being commissioned." />
-        <MenuItem Header="_Releases page" Click="OnOpenReleases"
-                  ToolTip="Opens the download page in a browser. Needs a machine with a route out - most plant laptops do not have one." />
-        <Separator />
-        <MenuItem Header="Open the _diagnostic log folder" Click="OnOpenLogFolder"
-                  ToolTip="Why the application misbehaved. Not the commissioning record - that is the event log inside the project file, and nothing can edit it." />
-        <Separator />
-        <MenuItem Header="_About NetControl" Click="OnAbout" />
-      </MenuItem>
-    </Menu>
 
     <!-- ============================ Interface bar ============================
          Always visible, and the first thing the eye lands on. "Nothing is arriving" has four
          common causes and three of them are measurable before a packet lands; this bar rules
          those three out so nobody has to guess which one they are looking at. -->
     <Border DockPanel.Dock="Top"
-            Background="{DynamicResource chrome-fill}"
-            BorderBrush="{DynamicResource line}"
-            BorderThickness="0,0,0,1"
-            Padding="10,8">
+            Style="{StaticResource Card}"
+            Margin="10,2,10,0"
+            Padding="12,8">
       <StackPanel>
 
         <!-- Headline: the state light, the sentence, the adapter, and the controls. -->
@@ -323,7 +328,9 @@
            Edits go straight into the project file as each cell is left, and straight into the
            policy the receive loop reads. There is no Save button because there is nothing to
            save - see the status bar. -->
-      <DockPanel Grid.Row="0" Margin="10,8,10,0">
+      <!-- Each working area is a card on the backdrop, as in File Manager. -->
+      <Border Grid.Row="0" Style="{StaticResource Card}" Margin="10,8,10,0" Padding="8,6,8,0">
+      <DockPanel>
 
         <!-- A WrapPanel rather than a StackPanel since the toolbar grew a second group: on a narrow
              window the diagnostics buttons drop to a second line instead of off the edge. -->
@@ -521,10 +528,34 @@
               </DataGridTextColumn.ElementStyle>
             </DataGridTextColumn>
 
+            <!-- What this device is known to do wrong - learned from a Set static or ticked by hand.
+                 Read-only here; the editor is on the row's right-click menu, because each flag needs
+                 its sentence beside it to be chosen honestly. -->
+            <DataGridTextColumn Header="Quirks" Width="110" IsReadOnly="True"
+                                Binding="{Binding QuirksText, Mode=OneWay}">
+              <DataGridTextColumn.ElementStyle>
+                <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                  <Setter Property="ToolTip" Value="{Binding QuirksTooltip}" />
+                  <Setter Property="Foreground" Value="{DynamicResource warn}" />
+                </Style>
+              </DataGridTextColumn.ElementStyle>
+            </DataGridTextColumn>
+
             <DataGridTextColumn Header="Notes" Width="220" Binding="{Binding Notes}" />
           </DataGrid.Columns>
+
+          <DataGrid.ContextMenu>
+            <ContextMenu>
+              <MenuItem Header="Device _quirks..." Click="OnEditQuirks"
+                        ToolTip="What this device is known to do wrong, and what NetControl does about each." />
+              <MenuItem Header="_Diagnose this device" Click="OnDiagnoseSelectedRow" />
+              <MenuItem Header="_Read Modbus registers" Click="OnModbusSelectedRow"
+                        ToolTip="Opens the Modbus tab on this device's planned address. Read-only." />
+            </ContextMenu>
+          </DataGrid.ContextMenu>
         </DataGrid>
       </DockPanel>
+      </Border>
 
       <GridSplitter Grid.Row="1"
                     Height="7"
@@ -538,7 +569,8 @@
       <!-- The two halves of discovery, kept apart on purpose. A device in the live log asked for
            an address; a device in the scan results already has one and did not ask for anything.
            Both feed the same "add to plan" action, and a list that conflated them would mislead. -->
-      <TabControl Grid.Row="2" Margin="10,6,10,8">
+      <Border Grid.Row="2" Style="{StaticResource Card}" Margin="10,6,10,8" Padding="4">
+      <TabControl>
 
         <!-- ============================ Live request log ============================
              Every request as it lands, with the adapter it arrived on, the vendor behind the MAC,
@@ -1098,7 +1130,7 @@
                       ToolTip="Reads the device's identity, fault status, address settings and every port's link and error counters over EtherNet/IP. Read-only: it never clears a counter. Read twice to see which counters are still moving." />
               <Button Content="Check services"
                       Command="{Binding Diagnostics.CheckServicesCommand}"
-                      ToolTip="Connects to a short list of TCP ports one at a time and closes at once, sending nothing - web page, Modbus, S7, OPC UA, EtherNet/IP and a few more." />
+                      ToolTip="Connects to a short list of TCP ports one at a time. On an open port it asks one read-only question that only the real protocol answers - EtherNet/IP identity, Modbus device ID, an S7 connect, MELSEC CPU model, an OPC UA hello, an HTTP HEAD - so an open port is proven, not assumed." />
               <Button Content="Open web page"
                       Click="OnOpenDeviceWebPage"
                       Visibility="{Binding Diagnostics.WebPage, Converter={StaticResource NotNullToVisible}}"
@@ -1261,8 +1293,8 @@
                       <Grid Margin="0,1">
                         <Grid.ColumnDefinitions>
                           <ColumnDefinition Width="60" />
-                          <ColumnDefinition Width="120" />
-                          <ColumnDefinition Width="80" />
+                          <ColumnDefinition Width="130" />
+                          <ColumnDefinition Width="110" />
                           <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <TextBlock Grid.Column="0" Style="{StaticResource MonoText}" Text="{Binding Service.Port}" />
@@ -1273,15 +1305,33 @@
                               <Setter Property="Foreground" Value="{DynamicResource txt-2}" />
                               <Style.Triggers>
                                 <DataTrigger Binding="{Binding IsOpen}" Value="True">
-                                  <Setter Property="Foreground" Value="{DynamicResource good}" />
+                                  <Setter Property="Foreground" Value="{DynamicResource txt-0}" />
                                   <Setter Property="FontWeight" Value="SemiBold" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding IsVerified}" Value="True">
+                                  <Setter Property="Foreground" Value="{DynamicResource good}" />
+                                </DataTrigger>
+                                <!-- Open but the handshake did not prove the protocol: something else is
+                                     squatting on a well-known port, and that is worth the eye. -->
+                                <DataTrigger Binding="{Binding IsUnverified}" Value="True">
+                                  <Setter Property="Foreground" Value="{DynamicResource warn}" />
                                 </DataTrigger>
                               </Style.Triggers>
                             </Style>
                           </TextBlock.Style>
                         </TextBlock>
-                        <TextBlock Grid.Column="3" Style="{StaticResource Muted}" TextTrimming="CharacterEllipsis"
-                                   Text="{Binding Service.Meaning}" />
+                        <TextBlock Grid.Column="3" TextTrimming="CharacterEllipsis"
+                                   Text="{Binding DetailText}" ToolTip="{Binding DetailText}">
+                          <TextBlock.Style>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource Muted}">
+                              <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsVerified}" Value="True">
+                                  <Setter Property="Foreground" Value="{DynamicResource txt-1}" />
+                                </DataTrigger>
+                              </Style.Triggers>
+                            </Style>
+                          </TextBlock.Style>
+                        </TextBlock>
                       </Grid>
                     </DataTemplate>
                   </ItemsControl.ItemTemplate>
@@ -1291,7 +1341,304 @@
           </DockPanel>
         </TabItem>
 
+        <!-- ================================ Modbus ================================
+             Reads only: coils, inputs, holding and input registers, decoded every common way.
+             There is no write anywhere in this tab, by design - see ModbusViewModel. -->
+        <TabItem Header="Modbus" x:Name="ModbusTab">
+          <DockPanel>
+
+            <WrapPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="10,8,10,6">
+              <TextBlock Text="Device" VerticalAlignment="Center" Margin="0,0,6,0" />
+              <TextBox Width="130" VerticalAlignment="Center" FontFamily="{DynamicResource mono}"
+                       Text="{Binding Modbus.TargetText, UpdateSourceTrigger=PropertyChanged}"
+                       ToolTip="One device's address. Right-click a plan row > Read Modbus registers, or type it." />
+              <TextBlock Text="Port" VerticalAlignment="Center" Margin="10,0,6,0" />
+              <TextBox Width="54" VerticalAlignment="Center" FontFamily="{DynamicResource mono}"
+                       Text="{Binding Modbus.PortText, UpdateSourceTrigger=PropertyChanged}" />
+              <TextBlock Text="Unit" VerticalAlignment="Center" Margin="10,0,6,0" />
+              <TextBox Width="44" VerticalAlignment="Center" FontFamily="{DynamicResource mono}"
+                       Text="{Binding Modbus.UnitIdText, UpdateSourceTrigger=PropertyChanged}"
+                       ToolTip="Unit id: 1 for most devices on Ethernet. Behind a gateway, the serial address of the device. 255 asks the gateway itself." />
+              <ComboBox Width="220" Margin="10,0,0,0" VerticalAlignment="Center"
+                        ItemsSource="{Binding Modbus.Functions}"
+                        SelectedItem="{Binding Modbus.Function}"
+                        DisplayMemberPath="Label" />
+              <TextBlock Text="Start" VerticalAlignment="Center" Margin="10,0,6,0" />
+              <TextBox Width="64" VerticalAlignment="Center" FontFamily="{DynamicResource mono}"
+                       Text="{Binding Modbus.StartText, UpdateSourceTrigger=PropertyChanged}"
+                       ToolTip="Zero-based, as sent on the wire: holding register 40001 is start 0. The results show both numberings." />
+              <TextBlock Text="Count" VerticalAlignment="Center" Margin="10,0,6,0" />
+              <TextBox Width="54" VerticalAlignment="Center" FontFamily="{DynamicResource mono}"
+                       Text="{Binding Modbus.CountText, UpdateSourceTrigger=PropertyChanged}"
+                       ToolTip="Up to 125 registers or 2000 bits - the protocol's limit. Many devices accept fewer." />
+
+              <Button Content="Read" Margin="12,0,0,0" Style="{StaticResource PrimaryButton}"
+                      Command="{Binding Modbus.ReadCommand}"
+                      ToolTip="One read. Recorded in the project." />
+              <Button Content="Poll every second"
+                      Command="{Binding Modbus.StartPollCommand}"
+                      ToolTip="Reads once a second until stopped or a read fails - to watch a value change. Two rows in the record: the start and the stop." />
+              <Button Content="Stop" Command="{Binding Modbus.StopPollCommand}" />
+
+              <TextBlock Text="32-bit order" VerticalAlignment="Center" Margin="14,0,6,0" />
+              <ComboBox Width="110" VerticalAlignment="Center"
+                        ItemsSource="{Binding Modbus.WordOrders}"
+                        SelectedItem="{Binding Modbus.WordOrder}"
+                        ToolTip="HighFirst is ABCD, the usual; LowFirst is CDAB, 'word swapped'. Changing it re-decodes the last read without reading again." />
+            </WrapPanel>
+
+            <TextBlock DockPanel.Dock="Top" Margin="12,0,10,6" Style="{StaticResource Muted}"
+                       TextTrimming="CharacterEllipsis"
+                       Text="{Binding Modbus.Status}" ToolTip="{Binding Modbus.Status}" />
+
+            <Border DockPanel.Dock="Top" Style="{StaticResource FaultNotice}" Margin="10,0,10,8"
+                    Visibility="{Binding Modbus.ErrorMessage, Converter={StaticResource NotNullToVisible}}">
+              <StackPanel>
+                <TextBlock Style="{StaticResource FaultText}" TextWrapping="Wrap" Text="{Binding Modbus.ErrorMessage}" />
+                <TextBlock Style="{StaticResource FaultText}" Margin="0,4,0,0" TextWrapping="Wrap"
+                           Visibility="{Binding Modbus.ErrorRemediation, Converter={StaticResource NotNullToVisible}}"
+                           Text="{Binding Modbus.ErrorRemediation}" />
+              </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource Card}" Margin="10,0,10,8" Padding="4">
+              <DataGrid ItemsSource="{Binding Modbus.Rows}"
+                        AutoGenerateColumns="False"
+                        IsReadOnly="True"
+                        CanUserAddRows="False"
+                        CanUserDeleteRows="False"
+                        SelectionMode="Extended"
+                        HeadersVisibility="Column"
+                        GridLinesVisibility="Horizontal"
+                        RowHeaderWidth="0"
+                        BorderThickness="0"
+                        VirtualizingPanel.IsVirtualizing="True">
+                <DataGrid.Columns>
+                  <DataGridTextColumn Header="Address" Width="70" Binding="{Binding Address, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                  <DataGridTextColumn Header="Reference" Width="80" Binding="{Binding Reference, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                  <DataGridTextColumn Header="Unsigned" Width="80" Binding="{Binding Unsigned, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                  <DataGridTextColumn Header="Signed" Width="80" Binding="{Binding Signed, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                  <DataGridTextColumn Header="Hex" Width="70" Binding="{Binding Hex, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                  <DataGridTextColumn Header="Binary" Width="150" Binding="{Binding Binary, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                  <DataGridTextColumn Header="Float (this + next)" Width="130" Binding="{Binding FloatText, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                  <DataGridTextColumn Header="Int32 (this + next)" Width="130" Binding="{Binding Int32Text, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                  <DataGridTextColumn Header="UInt32 (this + next)" Width="*" Binding="{Binding UInt32Text, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                </DataGrid.Columns>
+              </DataGrid>
+            </Border>
+          </DockPanel>
+        </TabItem>
+
+        <!-- ================================ Passive ================================
+             Listen-only inventory: every device heard, nothing sent. Needs Npcap; without it the
+             tab says what to install and nothing else in the app notices. -->
+        <TabItem Header="Passive" x:Name="PassiveTab">
+          <DockPanel Loaded="OnPassiveTabShown">
+
+            <Border DockPanel.Dock="Top" Style="{StaticResource Card}" Margin="10,8,10,6" Padding="12,8">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                  <TextBlock TextWrapping="Wrap">
+                    <Run Text="Npcap: " FontWeight="SemiBold" /><Run Text="{Binding Passive.AvailabilityText, Mode=OneWay}" />
+                  </TextBlock>
+                  <TextBlock Style="{StaticResource Muted}" Margin="0,3,0,0" TextWrapping="Wrap"
+                             Visibility="{Binding Passive.Remediation, Converter={StaticResource NotNullToVisible}}"
+                             Text="{Binding Passive.Remediation}" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                  <Button Content="Get Npcap" Click="OnGetNpcap"
+                          ToolTip="Opens npcap.com. Free for use on your own machines; Wireshark's installer includes it too." />
+                  <Button Content="Check again" Command="{Binding Passive.CheckAvailabilityCommand}" />
+                </StackPanel>
+              </Grid>
+            </Border>
+
+            <WrapPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="10,0,10,6">
+              <Button Content="Start listening" Style="{StaticResource PrimaryButton}"
+                      Command="{Binding Passive.StartCommand}"
+                      ToolTip="Listens on the adapter selected at the top of the window. Sends nothing at all - devices appear as they talk: ARP, BOOTP/DHCP, LLDP, PROFINET and EtherNet/IP." />
+              <Button Content="Stop" Command="{Binding Passive.StopCommand}" />
+              <CheckBox Content="Promiscuous" Margin="12,0,0,0" VerticalAlignment="Center"
+                        IsChecked="{Binding Passive.Promiscuous}"
+                        ToolTip="Also hear frames addressed to other devices - on a switched network that is mostly multicast like LLDP. Some Wi-Fi adapters refuse it; untick if listening will not start." />
+              <TextBlock Style="{StaticResource Muted}" Margin="12,0,0,0" VerticalAlignment="Center"
+                         MaxWidth="640" TextTrimming="CharacterEllipsis"
+                         Text="{Binding Passive.Status}" ToolTip="{Binding Passive.Status}" />
+            </WrapPanel>
+
+            <Border DockPanel.Dock="Top" Style="{StaticResource FaultNotice}" Margin="10,0,10,8"
+                    Visibility="{Binding Passive.ErrorMessage, Converter={StaticResource NotNullToVisible}}">
+              <StackPanel>
+                <TextBlock Style="{StaticResource FaultText}" TextWrapping="Wrap" Text="{Binding Passive.ErrorMessage}" />
+                <TextBlock Style="{StaticResource FaultText}" Margin="0,4,0,0" TextWrapping="Wrap"
+                           Visibility="{Binding Passive.ErrorRemediation, Converter={StaticResource NotNullToVisible}}"
+                           Text="{Binding Passive.ErrorRemediation}" />
+              </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource Card}" Margin="10,0,10,8" Padding="4">
+              <DataGrid ItemsSource="{Binding Passive.Devices}"
+                        AutoGenerateColumns="False"
+                        IsReadOnly="True"
+                        CanUserAddRows="False"
+                        CanUserDeleteRows="False"
+                        SelectionMode="Extended"
+                        HeadersVisibility="Column"
+                        GridLinesVisibility="Horizontal"
+                        RowHeaderWidth="0"
+                        BorderThickness="0"
+                        VirtualizingPanel.IsVirtualizing="True">
+                <DataGrid.RowStyle>
+                  <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
+                    <Setter Property="ToolTip" Value="{Binding Detail}" />
+                    <Style.Triggers>
+                      <!-- Asking for an address and never seen holding one: the device a BOOTP server is for. -->
+                      <DataTrigger Binding="{Binding IsWaitingForAddress}" Value="True">
+                        <Setter Property="Background" Value="{DynamicResource row-warn}" />
+                      </DataTrigger>
+                    </Style.Triggers>
+                  </Style>
+                </DataGrid.RowStyle>
+                <DataGrid.Columns>
+                  <DataGridTextColumn Header="MAC" Width="140" Binding="{Binding Mac, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                  <DataGridTextColumn Header="Vendor" Width="160" Binding="{Binding Vendor, Mode=OneWay}" />
+                  <DataGridTextColumn Header="Address" Width="150" Binding="{Binding AddressText, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                  <DataGridTextColumn Header="Name" Width="170" Binding="{Binding NameText, Mode=OneWay}" />
+                  <DataGridTextColumn Header="Heard by" Width="190" Binding="{Binding SourcesText, Mode=OneWay}" />
+                  <DataGridTextColumn Header="VLAN" Width="50" Binding="{Binding Vlan, Mode=OneWay}" />
+                  <DataGridTextColumn Header="Frames" Width="60" Binding="{Binding Frames, Mode=OneWay}" />
+                  <DataGridTextColumn Header="Detail" Width="*" Binding="{Binding Detail, Mode=OneWay}" />
+                </DataGrid.Columns>
+              </DataGrid>
+            </Border>
+          </DockPanel>
+        </TabItem>
+
+        <!-- ================================ PROFINET ================================
+             DCP: identify everything, then name, address or flash ONE device - confirmed, recorded,
+             and read back. Needs Npcap: DCP is Ethernet, not IP. -->
+        <TabItem Header="PROFINET" x:Name="ProfinetTab">
+          <DockPanel Loaded="OnProfinetTabShown">
+
+            <Border DockPanel.Dock="Top" Style="{StaticResource Card}" Margin="10,8,10,6" Padding="12,8">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                  <TextBlock TextWrapping="Wrap">
+                    <Run Text="Npcap: " FontWeight="SemiBold" /><Run Text="{Binding Profinet.AvailabilityText, Mode=OneWay}" />
+                  </TextBlock>
+                  <TextBlock Style="{StaticResource Muted}" Margin="0,3,0,0" TextWrapping="Wrap"
+                             Visibility="{Binding Profinet.Remediation, Converter={StaticResource NotNullToVisible}}"
+                             Text="{Binding Profinet.Remediation}" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                  <Button Content="Get Npcap" Click="OnGetNpcap" />
+                  <Button Content="Check again" Command="{Binding Profinet.CheckAvailabilityCommand}" />
+                </StackPanel>
+              </Grid>
+            </Border>
+
+            <WrapPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="10,0,10,6">
+              <Button Content="Identify" Style="{StaticResource PrimaryButton}"
+                      Command="{Binding Profinet.IdentifyCommand}"
+                      ToolTip="One DCP Identify All, from the adapter selected at the top of the window. Every PROFINET device on the segment answers with its name, type and address. A read - nothing is changed." />
+              <TextBlock Style="{StaticResource Muted}" Margin="12,0,0,0" VerticalAlignment="Center"
+                         MaxWidth="700" TextTrimming="CharacterEllipsis"
+                         Text="{Binding Profinet.Status}" ToolTip="{Binding Profinet.Status}" />
+            </WrapPanel>
+
+            <Border DockPanel.Dock="Top" Style="{StaticResource FaultNotice}" Margin="10,0,10,8"
+                    Visibility="{Binding Profinet.ErrorMessage, Converter={StaticResource NotNullToVisible}}">
+              <StackPanel>
+                <TextBlock Style="{StaticResource FaultText}" TextWrapping="Wrap" Text="{Binding Profinet.ErrorMessage}" />
+                <TextBlock Style="{StaticResource FaultText}" Margin="0,4,0,0" TextWrapping="Wrap"
+                           Visibility="{Binding Profinet.ErrorRemediation, Converter={StaticResource NotNullToVisible}}"
+                           Text="{Binding Profinet.ErrorRemediation}" />
+              </StackPanel>
+            </Border>
+
+            <!-- The selected device's edit card. Changes go to that one MAC only, after a confirmation. -->
+            <Border DockPanel.Dock="Right" Width="330" Style="{StaticResource Card}" Margin="0,0,10,8" Padding="12,10">
+              <StackPanel>
+                <TextBlock Style="{StaticResource PanelHead}" Text="Selected device" />
+                <TextBlock Margin="0,4,0,8" TextWrapping="Wrap" FontFamily="{DynamicResource mono}"
+                           Text="{Binding Profinet.Selected.Mac, Mode=OneWay, FallbackValue='Pick a device in the list.'}" />
+
+                <TextBlock Text="Station name" Style="{StaticResource Muted}" />
+                <TextBox Text="{Binding Profinet.NewName, UpdateSourceTrigger=PropertyChanged}" Margin="0,2,0,4"
+                         ToolTip="Lowercase letters, digits, '-' and '.', as the controller's project names it." />
+                <Button Content="Set name" HorizontalAlignment="Left" Command="{Binding Profinet.SetNameCommand}" />
+
+                <TextBlock Text="Address" Style="{StaticResource Muted}" Margin="0,10,0,0" />
+                <TextBox Text="{Binding Profinet.NewIp, UpdateSourceTrigger=PropertyChanged}" FontFamily="{DynamicResource mono}" Margin="0,2,0,4" />
+                <TextBlock Text="Mask" Style="{StaticResource Muted}" />
+                <TextBox Text="{Binding Profinet.NewMask, UpdateSourceTrigger=PropertyChanged}" FontFamily="{DynamicResource mono}" Margin="0,2,0,4" />
+                <TextBlock Text="Gateway (blank for none)" Style="{StaticResource Muted}" />
+                <TextBox Text="{Binding Profinet.NewGateway, UpdateSourceTrigger=PropertyChanged}" FontFamily="{DynamicResource mono}" Margin="0,2,0,4" />
+                <Button Content="Set address" HorizontalAlignment="Left" Command="{Binding Profinet.SetIpCommand}" />
+
+                <CheckBox Content="Keep after a power cycle" Margin="0,10,0,0"
+                          IsChecked="{Binding Profinet.Permanent}"
+                          ToolTip="Off sets the value until the device's next power cycle - for a quick test on a bench." />
+
+                <WrapPanel Margin="0,10,0,0">
+                  <Button Content="Flash LED" Command="{Binding Profinet.FlashCommand}"
+                          ToolTip="Makes the device blink for a few seconds, so somebody at the panel can see which one it is. Stores nothing." />
+                  <Button Content="Read again" Command="{Binding Profinet.ReadBackCommand}"
+                          ToolTip="A DCP Get to this device: its name and address as it holds them now." />
+                </WrapPanel>
+              </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource Card}" Margin="10,0,10,8" Padding="4">
+              <DataGrid ItemsSource="{Binding Profinet.Devices}"
+                        SelectedItem="{Binding Profinet.Selected}"
+                        AutoGenerateColumns="False"
+                        IsReadOnly="True"
+                        CanUserAddRows="False"
+                        CanUserDeleteRows="False"
+                        SelectionMode="Single"
+                        HeadersVisibility="Column"
+                        GridLinesVisibility="Horizontal"
+                        RowHeaderWidth="0"
+                        BorderThickness="0">
+                <DataGrid.RowStyle>
+                  <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
+                    <Style.Triggers>
+                      <DataTrigger Binding="{Binding AddressConflict}" Value="True">
+                        <Setter Property="Background" Value="{DynamicResource row-bad}" />
+                      </DataTrigger>
+                      <DataTrigger Binding="{Binding HasName}" Value="False">
+                        <Setter Property="Background" Value="{DynamicResource row-warn}" />
+                      </DataTrigger>
+                    </Style.Triggers>
+                  </Style>
+                </DataGrid.RowStyle>
+                <DataGrid.Columns>
+                  <DataGridTextColumn Header="MAC" Width="140" Binding="{Binding Mac, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                  <DataGridTextColumn Header="Station name" Width="180" Binding="{Binding NameOfStation, Mode=OneWay}" />
+                  <DataGridTextColumn Header="Type" Width="140" Binding="{Binding TypeOfStation, Mode=OneWay}" />
+                  <DataGridTextColumn Header="Address" Width="120" Binding="{Binding Address, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                  <DataGridTextColumn Header="Mask" Width="120" Binding="{Binding Mask, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                  <DataGridTextColumn Header="Gateway" Width="120" Binding="{Binding Gateway, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                  <DataGridTextColumn Header="Set by" Width="70" Binding="{Binding AddressOrigin, Mode=OneWay}" />
+                  <DataGridTextColumn Header="Vendor:device" Width="100" Binding="{Binding IdText, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                  <DataGridTextColumn Header="Role" Width="*" Binding="{Binding RoleText, Mode=OneWay}" />
+                </DataGrid.Columns>
+              </DataGrid>
+            </Border>
+          </DockPanel>
+        </TabItem>
+
       </TabControl>
+      </Border>
     </Grid>
 
   </DockPanel>

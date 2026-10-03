@@ -32,6 +32,15 @@ public enum EventCategory
     /// </summary>
     Tftp,
 
+    /// <summary>Modbus/TCP register reads (0.9.0). Reads only - this tool has no Modbus write.</summary>
+    Modbus,
+
+    /// <summary>
+    /// PROFINET DCP (0.9.0): identify, and the name, address and signal writes - each to one MAC
+    /// somebody chose, behind a confirmation.
+    /// </summary>
+    Profinet,
+
     /// <summary>A category written by a build newer than this one.</summary>
     Other,
 }

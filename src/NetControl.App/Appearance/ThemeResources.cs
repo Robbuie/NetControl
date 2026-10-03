@@ -29,7 +29,7 @@ public static class ThemeResources
     private static readonly HashSet<string> NonColour = new(StringComparer.Ordinal)
     {
         "ui-font", "tb-h", "row-h", "status-h", "side-w", "tbtn-h", "icon", "field-h",
-        "small-font", "grid-row-h", "radius", "radius-sm", "font", "mono", "is-light",
+        "small-font", "grid-row-h", "radius", "radius-sm", "radius-lg", "font", "mono", "is-light",
     };
 
     /// <summary>
@@ -80,6 +80,7 @@ public static class ThemeResources
         // is forty places the radius stops being a token.
         dictionary["corner"] = new CornerRadius((double)dictionary["radius"]!);
         dictionary["corner-sm"] = new CornerRadius((double)dictionary["radius-sm"]!);
+        dictionary["corner-lg"] = new CornerRadius((double)dictionary["radius-lg"]!);
 
         // THE TWO GRADIENTS ARE BUILT HERE RATHER THAN IN XAML, AND THEY HAVE TO BE.
         // A {DynamicResource} inside a Freezable that sits in a Setter.Value - which is what a

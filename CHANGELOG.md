@@ -4,6 +4,47 @@ Newest first. The release workflow copies a version's section onto its GitHub re
 write it for the person deciding whether to install the update. The heading has to start
 `## <version>` for that to find it.
 
+## 0.9.0 - verified services, device quirks, boot options, Modbus, PROFINET, passive listening and a new look
+
+Project files written by this version are schema version 3 (project settings, for the DHCP boot
+options). Older builds will refuse to open them and say to update; this build opens every older file
+and upgrades it.
+
+- **The service check proves the protocol.** An open port only proves something accepted a
+  connection. Each known port is now asked one read-only question only the real protocol can
+  answer - EtherNet/IP identity, Modbus device identification, an S7 connection request, the MELSEC
+  CPU model (port 5007, new to the list), an OPC UA hello, an HTTP HEAD, the SSH/FTP/Telnet
+  greeting - and the list says **verified** with what the device said, or **open, unproven** in
+  amber when something else is squatting on the port.
+- **Device quirks.** A new **Quirks** column on the plan, and **Device quirks...** on a row's
+  right-click menu. Set static fills it in by itself from what the device actually did - an address
+  pinned by switches, a write held until a reset, a write that said yes and was not kept, a
+  connection dropped mid-write - and you can tick or untick any of them, each with a line saying what
+  NetControl does about it. "Slow to answer" gives that device longer timeouts; "ignores broadcast
+  discovery" makes every scan also ask its planned address directly. Re-importing a CSV keeps them.
+- **DHCP boot options.** Listener > DHCP boot options: next server, TFTP server name, boot file,
+  domain name and DNS servers for every reply this project serves - in the header fields always, and
+  as options 66, 67, 15 and 6 to a DHCP client that asks for them. Blank by default, and blank means
+  replies are exactly what they were.
+- **Modbus tab.** Read holding registers, input registers, coils or discrete inputs from one device,
+  shown as unsigned, signed, hex, binary and 32-bit float and integer in both word orders, with both
+  address numberings (0 and 40001). **Poll every second** to watch a value change. Reads only - there
+  is no Modbus write anywhere in NetControl. Right-click a plan row > Read Modbus registers.
+- **Passive tab.** Listens on the selected adapter and lists every device it hears - by ARP,
+  BOOTP/DHCP, LLDP, PROFINET and EtherNet/IP traffic - **without sending a single frame**. Devices
+  asking for an address and getting none are highlighted. Needs Npcap (below).
+- **PROFINET tab.** DCP Identify finds every PROFINET device with its station name, type and
+  address; then set one device's **station name** or **address**, or **flash its LED** to find it in
+  the panel. Every change is confirmed naming the device, sent to that one device only, read back,
+  and recorded. Needs Npcap.
+- **Npcap is optional.** The Passive and PROFINET tabs need the free Npcap driver (npcap.com, or
+  install Wireshark, which includes it). Without it those two tabs say so and link to it; everything
+  else in NetControl works exactly as before and never looks for it.
+- **A new look, matching File Manager.** NetControl's own title bar with the menus in it, the
+  working areas as rounded cards, and the theme **follows Windows' light and dark mode** - switching
+  live when Windows does - with a light and a dark theme of your choice (View > Appearance). An
+  existing appearance setting is kept as it was; following is the default for a new install.
+
 ## 0.8.0 - diagnostics, Set static on all, scan history and the commissioning report
 
 Project files written by this version are schema version 2 (the scan history). Older builds will

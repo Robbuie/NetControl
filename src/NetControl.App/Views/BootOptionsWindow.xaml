@@ -1,0 +1,82 @@
+<Window x:Class="NetControl.App.Views.BootOptionsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="DHCP boot options"
+        SizeToContent="Height"
+        Width="600"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner"
+        Style="{StaticResource ChromeDialog}">
+
+  <!-- Per project: what every served device is told beyond its address. Blank is unset, and an
+       all-blank form leaves replies exactly as they were. Validated in Core (BootOptions.TryCreate),
+       every problem listed at once, nothing saved until all of them are fixed. -->
+
+  <StackPanel Margin="18,14,18,14">
+    <TextBlock Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,0,0,12"
+               Text="Sent in every reply Serve makes for this project. The header fields always; options 66, 67, 15 and 6 only to a DHCP client that asks for them. Stored in the project file, and every change is written to its record." />
+
+    <Border Style="{StaticResource Card}" Padding="14,12">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Grid.Column="0" Text="Next server" Style="{StaticResource PanelHead}"
+                   VerticalAlignment="Center" Margin="0,0,14,0" />
+        <TextBox Grid.Row="0" Grid.Column="1" x:Name="NextServerBox" FontFamily="{DynamicResource mono}" />
+        <TextBlock Grid.Row="1" Grid.Column="1" Style="{StaticResource Muted}" Margin="0,2,0,10" TextWrapping="Wrap"
+                   Text="siaddr. Where the device loads its boot file from. Blank: this PC." />
+
+        <TextBlock Grid.Row="2" Grid.Column="0" Text="TFTP server name" Style="{StaticResource PanelHead}"
+                   VerticalAlignment="Center" Margin="0,0,14,0" />
+        <TextBox Grid.Row="2" Grid.Column="1" x:Name="TftpServerBox" />
+        <TextBlock Grid.Row="3" Grid.Column="1" Style="{StaticResource Muted}" Margin="0,2,0,10" TextWrapping="Wrap"
+                   Text="sname and option 66. A name or an address, as the device's manual asks for it." />
+
+        <TextBlock Grid.Row="4" Grid.Column="0" Text="Boot file" Style="{StaticResource PanelHead}"
+                   VerticalAlignment="Center" Margin="0,0,14,0" />
+        <TextBox Grid.Row="4" Grid.Column="1" x:Name="BootFileBox" FontFamily="{DynamicResource mono}" />
+        <TextBlock Grid.Row="5" Grid.Column="1" Style="{StaticResource Muted}" Margin="0,2,0,10" TextWrapping="Wrap"
+                   Text="file and option 67. Exactly as the device expects it - case, slashes and extension are not corrected." />
+
+        <TextBlock Grid.Row="6" Grid.Column="0" Text="Domain name" Style="{StaticResource PanelHead}"
+                   VerticalAlignment="Center" Margin="0,0,14,0" />
+        <TextBox Grid.Row="6" Grid.Column="1" x:Name="DomainBox" />
+        <TextBlock Grid.Row="7" Grid.Column="1" Style="{StaticResource Muted}" Margin="0,2,0,10" Text="Option 15." />
+
+        <TextBlock Grid.Row="8" Grid.Column="0" Text="DNS servers" Style="{StaticResource PanelHead}"
+                   VerticalAlignment="Center" Margin="0,0,14,0" />
+        <TextBox Grid.Row="8" Grid.Column="1" x:Name="DnsBox" FontFamily="{DynamicResource mono}" />
+        <TextBlock Grid.Row="9" Grid.Column="1" Style="{StaticResource Muted}" Margin="0,2,0,0"
+                   Text="Option 6. Comma-separated, in order of preference." />
+      </Grid>
+    </Border>
+
+    <Border x:Name="ProblemPanel" Style="{StaticResource FaultNotice}" Margin="0,10,0,0" Visibility="Collapsed">
+      <TextBlock x:Name="ProblemText" Style="{StaticResource FaultText}" TextWrapping="Wrap" />
+    </Border>
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+      <Button Content="Clear all" Margin="0,0,8,0" MinWidth="80" Click="OnClear"
+              ToolTip="Blanks every field. Saved, replies go back to carrying the address, mask and gateway only." />
+      <Button Content="Save" Style="{StaticResource PrimaryButton}" IsDefault="True" MinWidth="80"
+              Margin="0,0,8,0" Click="OnSave" />
+      <Button Content="Cancel" IsCancel="True" MinWidth="80" />
+    </StackPanel>
+  </StackPanel>
+</Window>

@@ -314,7 +314,7 @@ public sealed class DhcpServer
         DateTimeOffset now)
     {
         uint leaseSeconds = (uint)Math.Clamp(_options.LeaseTime.TotalSeconds, 60, uint.MaxValue);
-        BootpPacket? reply = BuildReply(request, assignment, serverIp, leaseSeconds);
+        BootpPacket? reply = BuildReply(request, assignment, serverIp, leaseSeconds, _options.Boot);
         if (reply is null)
         {
             return;
@@ -384,7 +384,8 @@ public sealed class DhcpServer
         BootpPacket request,
         DeviceAssignment assignment,
         IPAddress serverIp,
-        uint leaseSeconds)
+        uint leaseSeconds,
+        BootOptions? boot = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(assignment);
@@ -419,6 +420,7 @@ public sealed class DhcpServer
             // to get a reply ignored.
             reply.SetOption(DhcpOptionCode.SubnetMask, assignment.SubnetMask);
             AddGateway(reply, assignment);
+            boot?.ApplyTo(reply, request, isDhcp: false);
             return reply;
         }
 
@@ -426,6 +428,7 @@ public sealed class DhcpServer
         {
             reply.SetOption(DhcpOptionCode.DhcpMessageType, DhcpMessageType.Offer);
             AddDhcpCommon(reply, assignment, serverIp, leaseSeconds);
+            boot?.ApplyTo(reply, request, isDhcp: true);
             return reply;
         }
 
@@ -467,6 +470,7 @@ public sealed class DhcpServer
 
         reply.SetOption(DhcpOptionCode.DhcpMessageType, DhcpMessageType.Ack);
         AddDhcpCommon(reply, assignment, serverIp, leaseSeconds);
+        boot?.ApplyTo(reply, request, isDhcp: true);
         return reply;
     }
 

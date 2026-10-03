@@ -43,6 +43,10 @@ public sealed class DeviceRepository
     /// Inserts, or replaces the row with the same MAC. Replaces rather than merges: a re-import of
     /// a corrected CSV must be able to blank a field that should not be set, and a merge would
     /// leave yesterday's wrong gateway sitting in the plan with nothing to show it was ever there.
+    ///
+    /// <para><b>Except the quirks, which are merged.</b> A CSV has no quirks column, so a re-import
+    /// would otherwise zero what Set static learned about every device in the file. They are cleared
+    /// by a person in the quirk editor, which goes through <see cref="Update"/> and replaces.</para>
     /// </summary>
     /// <returns>The row id, whether inserted or updated.</returns>
     public long Upsert(DeviceRecord device)
@@ -66,7 +70,7 @@ public sealed class DeviceRepository
                     PanelRef    = excluded.PanelRef,
                     Role        = excluded.Role,
                     Vendor      = excluded.Vendor,
-                    QuirkFlags  = excluded.QuirkFlags,
+                    QuirkFlags  = excluded.QuirkFlags | Device.QuirkFlags,
                     Notes       = excluded.Notes
                 RETURNING Id;
                 """;

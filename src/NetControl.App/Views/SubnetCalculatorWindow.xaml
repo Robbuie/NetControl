@@ -7,10 +7,7 @@
         ResizeMode="NoResize"
         ShowInTaskbar="False"
         WindowStartupLocation="CenterOwner"
-        Background="{DynamicResource bg-0}"
-        FontFamily="{DynamicResource font}"
-        FontSize="{DynamicResource ui-font}"
-        Foreground="{DynamicResource txt-0}">
+        Style="{StaticResource ChromeDialog}">
 
   <!-- PLAN-TOOLKIT.md F6. Recalculates as it is typed into, sends nothing and stores nothing. It
        opens on the selected adapter's own subnet, because the question is nearly always "is that

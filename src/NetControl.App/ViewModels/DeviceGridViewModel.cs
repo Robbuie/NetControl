@@ -599,6 +599,81 @@ public sealed partial class DeviceGridViewModel : ObservableObject
                 .Add("resetTheDevice", result.ResetTheDevice)
                 .Add("readback", result.Readback?.ToString())
                 .Add("reportedMethod", result.ReportedMethod));
+
+        LearnQuirks(row, result);
+    }
+
+    /// <summary>
+    /// Changes a device's quirks by hand, from the editor. One event row naming what was added and
+    /// what was removed, because "who decided this drive needs a reset" is a question the record
+    /// should be able to answer.
+    /// </summary>
+    public void EditQuirks(DeviceRowViewModel row, DeviceQuirks quirks)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+
+        DeviceQuirks before = row.Quirks;
+        if (!ApplyKeepingProblem(row, quirks))
+        {
+            return;
+        }
+
+        string added = DeviceQuirkCatalog.ShortText(quirks & ~before);
+        string removed = DeviceQuirkCatalog.ShortText(before & ~quirks);
+
+        Record(
+            EventSeverity.Info,
+            row,
+            $"Quirks for {row.Mac} edited by hand"
+                + (added.Length > 0 ? $"; added {added}" : string.Empty)
+                + (removed.Length > 0 ? $"; removed {removed}" : string.Empty) + ".",
+            new EventDetail()
+                .Add("operation", "editQuirks")
+                .Add("quirksBefore", (long)before)
+                .Add("quirksAfter", (long)quirks));
+    }
+
+    /// <summary>
+    /// What this attempt proved about the device, written onto its row and into the record. Only
+    /// ever adds; see <see cref="QuirkLearning"/>.
+    /// </summary>
+    private void LearnQuirks(DeviceRowViewModel row, CommissionResult result)
+    {
+        LearnedQuirks learned = QuirkLearning.Learn(result, row.Quirks);
+        if (!learned.Any)
+        {
+            return;
+        }
+
+        DeviceQuirks after = row.Quirks | learned.Flags;
+        ApplyKeepingProblem(row, after);
+
+        Record(
+            EventSeverity.Info,
+            row,
+            $"Learned about {row.Mac}: {DeviceQuirkCatalog.ShortText(learned.Flags)} - {string.Join("; ", learned.Reasons)}. "
+                + "Untick it under Device quirks if that was a one-off.",
+            new EventDetail()
+                .Add("operation", "learnQuirks")
+                .Add("quirksAfter", (long)after));
+    }
+
+    /// <summary>
+    /// Writes new quirks through the ordinary edit path, keeping whatever the row was saying. The
+    /// edit path revalidates the row's cells, which clears a problem - and the problem a row is
+    /// most likely to be showing at this moment is the failed Set static that just taught it.
+    /// </summary>
+    private static bool ApplyKeepingProblem(DeviceRowViewModel row, DeviceQuirks quirks)
+    {
+        string? problem = row.Problem;
+        bool changed = row.ApplyQuirks(quirks);
+
+        if (changed && problem is not null && row.Problem is null)
+        {
+            row.Problem = problem;
+        }
+
+        return changed;
     }
 
     /// <summary>
@@ -682,6 +757,8 @@ public sealed partial class DeviceGridViewModel : ObservableObject
                 .Add("resetTheDevice", result.ResetTheDevice)
                 .Add("readback", result.Readback?.ToString())
                 .Add("reportedMethod", result.ReportedMethod));
+
+        LearnQuirks(row, result);
     }
 
     private bool CanSetStaticAll() =>

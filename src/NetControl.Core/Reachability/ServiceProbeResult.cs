@@ -7,6 +7,9 @@ public sealed record ServiceProbeResult(IPAddress Address, IReadOnlyList<Service
 {
     public IReadOnlyList<ServiceCheck> Open => [.. Checks.Where(c => c.IsOpen)];
 
+    /// <summary>The open ports whose protocol a handshake proved.</summary>
+    public IReadOnlyList<ServiceCheck> Verified => [.. Checks.Where(c => c.IsVerified)];
+
     /// <summary>Something at the address answered - with a connection or with a refusal.</summary>
     public bool HostAnswered => Checks.Any(c => c.State is ServiceState.Open or ServiceState.Refused);
 
@@ -29,7 +32,13 @@ public sealed record ServiceProbeResult(IPAddress Address, IReadOnlyList<Service
         {
             if (Open.Count > 0)
             {
-                return $"{Address} answers on {string.Join(", ", Open.Select(c => c.Service.ToString()))}.";
+                string answers = $"{Address} answers on {string.Join(", ", Open.Select(c => c.Service.ToString()))}.";
+                IReadOnlyList<ServiceCheck> unproven = [.. Open.Where(c => c.IsUnverified)];
+
+                return unproven.Count == 0
+                    ? answers
+                    : $"{answers} Not proven: {string.Join(", ", unproven.Select(c => c.Service.ToString()))} - "
+                        + "something accepted the connection but did not speak that protocol.";
             }
 
             return HostAnswered

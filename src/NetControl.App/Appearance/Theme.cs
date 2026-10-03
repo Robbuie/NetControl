@@ -74,6 +74,14 @@ public static class Theme
         ["page-ring"] = "#8c000000",
         ["radius"] = "7",
         ["radius-sm"] = "5",
+
+        // File Manager's radius_lg: the corner of a card - a pane, a panel - sitting on the backdrop.
+        ["radius-lg"] = "12",
+
+        // The caption close button. Windows' own red, from File Manager's qss.py: it is what every
+        // other window on the screen uses, so it follows neither the theme nor the accent.
+        ["close-hover"] = "#c42b1c",
+        ["close-press"] = "#b22a1b",
         ["font"] = "Segoe UI, Inter",
         ["mono"] = "Cascadia Mono, Consolas",
     };
@@ -308,7 +316,40 @@ public static class Theme
     /// this one pretending to be a markup tool - and cyan is the only accent in the catalog that
     /// collides with none of green-ready, amber-warning and red-blocked.</para>
     /// </summary>
-    public static AppearanceChoice Defaults { get; } = new(DefaultTheme, DefaultAccent, DefaultDensity);
+    public static AppearanceChoice Defaults { get; } =
+        new(DefaultTheme, DefaultAccent, DefaultDensity, FollowWindows, DefaultLightTheme, DefaultTheme);
+
+    /// <summary>The theme stays what the picker says.</summary>
+    public const string FollowOff = "off";
+
+    /// <summary>The theme follows Windows' light or dark app mode. The default for a new install.</summary>
+    public const string FollowWindows = "windows";
+
+    private const string DefaultLightTheme = "light";
+
+    /// <summary>
+    /// Which themes are light - File Manager's LIGHT_THEMES. Used to suggest a sensible pair, never
+    /// to decide one: what is on screen is always a theme somebody picked.
+    /// </summary>
+    public static IReadOnlySet<string> LightThemes { get; } =
+        new HashSet<string>(StringComparer.Ordinal) { "light", "paper", "control", "frost", "ink" };
+
+    /// <summary>
+    /// The theme to draw with - File Manager's <c>themeswitch.pick</c>. Pure: Windows' mode comes
+    /// in as an argument, so the decision is tested without a registry. Unknown (null) means
+    /// "keep the picker's theme".
+    /// </summary>
+    public static string Effective(AppearanceChoice? choice, bool? windowsLight)
+    {
+        AppearanceChoice c = Normalise(choice);
+
+        if (c.Follow != FollowWindows || windowsLight is null)
+        {
+            return c.ThemeName!;
+        }
+
+        return windowsLight.Value ? c.LightTheme! : c.DarkTheme!;
+    }
 
     // The three names again, as constants. AppearanceChoice holds nullable strings - it has to,
     // because it is also the shape a hand-edited JSON file deserialises into - and the normalisers
@@ -349,10 +390,17 @@ public static class Theme
     public static AppearanceChoice Normalise(AppearanceChoice? choice, AppearanceChoice? fallback = null)
     {
         AppearanceChoice f = fallback ?? Defaults;
+        string? follow = choice?.Follow is FollowOff or FollowWindows ? choice.Follow
+            : f.Follow is FollowOff or FollowWindows ? f.Follow
+            : FollowOff;
+
         return new AppearanceChoice(
             ThemeOf(choice?.ThemeName, f.ThemeName),
             AccentOf(choice?.Accent, f.Accent),
-            DensityOf(choice?.Density, f.Density));
+            DensityOf(choice?.Density, f.Density),
+            follow,
+            ThemeOf(choice?.LightTheme, f.LightTheme ?? DefaultLightTheme),
+            ThemeOf(choice?.DarkTheme, f.DarkTheme ?? DefaultTheme));
     }
 
     // ----------------------------------------------------------------------
@@ -520,7 +568,7 @@ public static class Theme
     /// </summary>
     public static IReadOnlyDictionary<string, string> Current => _current ??= Tokens(Defaults);
 
-    /// <summary>What <see cref="Apply"/> was last given, normalised.</summary>
+    /// <summary>What <see cref="Apply"/> was last given, normalised - including the follow setting.</summary>
     public static AppearanceChoice CurrentChoice => _currentChoice;
 
     /// <summary>
@@ -537,7 +585,12 @@ public static class Theme
         ArgumentNullException.ThrowIfNull(app);
 
         AppearanceChoice c = Normalise(choice);
-        IReadOnlyDictionary<string, string> values = Tokens(c);
+
+        // Following Windows: the tokens are built for the theme Windows' mode picks, while the
+        // choice remembered is still the whole choice - so the next Apply, from a mode change,
+        // can pick again.
+        string drawn = Effective(c, c.Follow == FollowWindows ? SystemTheme.AppsUseLightTheme() : null);
+        IReadOnlyDictionary<string, string> values = Tokens(c with { ThemeName = drawn });
 
         ThemeResources.Install(app, values);
         ReadinessBrushes.Refresh(values);

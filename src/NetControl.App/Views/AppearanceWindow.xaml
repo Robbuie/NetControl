@@ -7,10 +7,7 @@
         ResizeMode="NoResize"
         ShowInTaskbar="False"
         WindowStartupLocation="CenterOwner"
-        Background="{DynamicResource bg-0}"
-        FontFamily="{DynamicResource font}"
-        FontSize="{DynamicResource ui-font}"
-        Foreground="{DynamicResource txt-0}">
+        Style="{StaticResource ChromeDialog}">
 
   <!-- The counterpart to the DWG viewer's appearance dialog and the PDF app's settings modal,
        and deliberately the same shape: three independent axes, one control each, a one-line note
@@ -22,6 +19,7 @@
 
   <Grid Margin="18,16,18,14">
     <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
       <RowDefinition Height="Auto" />
       <RowDefinition Height="Auto" />
       <RowDefinition Height="Auto" />
@@ -44,9 +42,35 @@
     <TextBlock x:Name="ThemeNote" Grid.Row="1" Grid.Column="1" Style="{StaticResource Muted}"
                TextWrapping="Wrap" Margin="0,4,0,14" />
 
-    <TextBlock Grid.Row="2" Grid.Column="0" Text="Accent" Style="{StaticResource PanelHead}"
+    <!-- File Manager 0.48's "theme changes by itself", Windows half: a light and a dark theme,
+         picked between by Windows' own app mode, and switched live when that changes. -->
+    <StackPanel Grid.Row="2" Grid.Column="1" Margin="0,0,0,14">
+      <CheckBox x:Name="FollowBox" Content="Follow Windows' light and dark mode"
+                Checked="OnFollowChanged" Unchecked="OnFollowChanged"
+                ToolTip="Uses the light theme below while Windows is in light mode and the dark one in dark mode, and switches as soon as Windows does. The theme above is used when this is off." />
+      <Grid x:Name="FollowPanel" Margin="22,8,0,0">
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <TextBlock Grid.Row="0" Grid.Column="0" Text="Light" Style="{StaticResource Muted}"
+                   VerticalAlignment="Center" Margin="0,0,10,0" />
+        <ComboBox x:Name="LightBox" Grid.Row="0" Grid.Column="1" Margin="0,0,0,6"
+                  DisplayMemberPath="Label" SelectedValuePath="Id" SelectionChanged="OnChoiceChanged" />
+        <TextBlock Grid.Row="1" Grid.Column="0" Text="Dark" Style="{StaticResource Muted}"
+                   VerticalAlignment="Center" Margin="0,0,10,0" />
+        <ComboBox x:Name="DarkBox" Grid.Row="1" Grid.Column="1"
+                  DisplayMemberPath="Label" SelectedValuePath="Id" SelectionChanged="OnChoiceChanged" />
+      </Grid>
+    </StackPanel>
+
+    <TextBlock Grid.Row="3" Grid.Column="0" Text="Accent" Style="{StaticResource PanelHead}"
                HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,14,0" />
-    <ComboBox x:Name="AccentBox" Grid.Row="2" Grid.Column="1"
+    <ComboBox x:Name="AccentBox" Grid.Row="3" Grid.Column="1"
               SelectedValuePath="Id" SelectionChanged="OnChoiceChanged">
       <!-- The swatch is the control's own preview: six colour names in a list say much less
            than six colours do. -->
@@ -65,23 +89,23 @@
         </DataTemplate>
       </ComboBox.ItemTemplate>
     </ComboBox>
-    <TextBlock Grid.Row="3" Grid.Column="1" Style="{StaticResource Muted}" TextWrapping="Wrap"
+    <TextBlock Grid.Row="4" Grid.Column="1" Style="{StaticResource Muted}" TextWrapping="Wrap"
                Margin="0,4,0,14"
                Text="Used for the armed control, the selected row and the field you are typing in." />
 
-    <TextBlock Grid.Row="4" Grid.Column="0" Text="Density" Style="{StaticResource PanelHead}"
+    <TextBlock Grid.Row="5" Grid.Column="0" Text="Density" Style="{StaticResource PanelHead}"
                HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,14,0" />
-    <ComboBox x:Name="DensityBox" Grid.Row="4" Grid.Column="1"
+    <ComboBox x:Name="DensityBox" Grid.Row="5" Grid.Column="1"
               DisplayMemberPath="Label" SelectedValuePath="Id"
               SelectionChanged="OnChoiceChanged" />
-    <TextBlock x:Name="DensityNote" Grid.Row="5" Grid.Column="1" Style="{StaticResource Muted}"
+    <TextBlock x:Name="DensityNote" Grid.Row="6" Grid.Column="1" Style="{StaticResource Muted}"
                TextWrapping="Wrap" Margin="0,4,0,14" />
 
-    <TextBlock Grid.Row="6" Grid.Column="1" Style="{StaticResource Muted}" TextWrapping="Wrap"
+    <TextBlock Grid.Row="7" Grid.Column="1" Style="{StaticResource Muted}" TextWrapping="Wrap"
                Margin="0,0,0,14"
                Text="The DWG viewer and the redline PDF app share this design system, so a theme you pick here will look familiar in those." />
 
-    <StackPanel Grid.Row="7" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+    <StackPanel Grid.Row="8" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
       <Button Content="Cancel" IsCancel="True" Click="OnCancel" />
       <Button Content="OK" IsDefault="True" Click="OnAccept" Margin="0"
               Style="{StaticResource PrimaryButton}" />

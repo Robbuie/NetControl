@@ -44,17 +44,51 @@ public partial class MainWindow : Window
         if (e.OldValue is MainViewModel old)
         {
             old.DiagnosticsRequested -= OnDiagnosticsRequested;
+            old.ModbusRequested -= OnModbusRequested;
             old.Plan.ConfirmBulk = null;
+            old.Profinet.ConfirmWrite = null;
         }
 
         if (e.NewValue is MainViewModel viewModel)
         {
             viewModel.DiagnosticsRequested += OnDiagnosticsRequested;
+            viewModel.ModbusRequested += OnModbusRequested;
             viewModel.Plan.ConfirmBulk = ConfirmSetStaticOnAll;
+            viewModel.Profinet.ConfirmWrite = ConfirmProfinetWrite;
         }
     }
 
     private void OnDiagnosticsRequested(object? sender, EventArgs e) => DiagnosticsTab.IsSelected = true;
+
+    private void OnModbusRequested(object? sender, EventArgs e) => ModbusTab.IsSelected = true;
+
+    /// <summary>
+    /// The PROFINET tab's yes/no, defaulting to No: a stray Enter must not rename a device on a
+    /// running line.
+    /// </summary>
+    private bool ConfirmProfinetWrite(string question) =>
+        MessageBox.Show(this, question, "PROFINET - confirm the change", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No)
+            == MessageBoxResult.Yes;
+
+    /// <summary>Looks for Npcap only when a tab that needs it is first shown - never at startup.</summary>
+    private void OnPassiveTabShown(object sender, RoutedEventArgs e) => ViewModel?.Passive.CheckAvailability();
+
+    private void OnProfinetTabShown(object sender, RoutedEventArgs e) => ViewModel?.Profinet.CheckAvailability();
+
+    private void OnGetNpcap(object sender, RoutedEventArgs e) =>
+        Shell.Open(this, NetControl.Core.Capture.CaptureAvailability.DownloadUrl);
+
+    private void OnModbusSelectedRow(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is { Plan.SelectedRow: { } row } viewModel)
+        {
+            viewModel.ModbusPlanRow(row);
+        }
+        else
+        {
+            ModbusTab.IsSelected = true;
+        }
+    }
 
     /// <summary>
     /// Names every device Set static on all is about to write to, and asks.
@@ -134,6 +168,48 @@ public partial class MainWindow : Window
     /// Opens the subnet calculator on the selected adapter's own subnet. Modeless, so it can stay open
     /// beside the plan while addresses are typed into it.
     /// </summary>
+    private void OnEditQuirks(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is not { } viewModel || viewModel.Plan.SelectedRow is not { } row)
+        {
+            return;
+        }
+
+        if (row.Id <= 0)
+        {
+            MessageBox.Show(
+                this,
+                "Type a MAC address into this row first - quirks belong to a device, and the plan knows a device by its MAC.",
+                "Device quirks",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            return;
+        }
+
+        string name = string.IsNullOrWhiteSpace(row.Role) ? row.MacText : $"{row.Role} ({row.MacText})";
+        var editor = new QuirksWindow(name, row.Quirks) { Owner = this };
+
+        if (editor.ShowDialog() == true)
+        {
+            viewModel.Plan.EditQuirks(row, editor.Result);
+        }
+    }
+
+    private void OnBootOptions(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is not { } viewModel)
+        {
+            return;
+        }
+
+        var editor = new BootOptionsWindow(viewModel.LoadBootOptions()) { Owner = this };
+
+        if (editor.ShowDialog() == true)
+        {
+            viewModel.SaveBootOptions(editor.Result);
+        }
+    }
+
     private void OnSubnetCalculator(object sender, RoutedEventArgs e) =>
         new SubnetCalculatorWindow(ViewModel?.SubnetCalculatorStart) { Owner = this }.Show();
 

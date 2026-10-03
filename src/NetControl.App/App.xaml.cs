@@ -27,6 +27,9 @@ public partial class App : Application
     /// </summary>
     private TraceLog? _trace;
 
+    /// <summary>The watch on Windows' light/dark mode. Released on exit - it is a static event.</summary>
+    private IDisposable? _systemTheme;
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
@@ -47,6 +50,28 @@ public partial class App : Application
         // the load nor the apply can throw: a settings file nobody can read produces the
         // defaults, and an unknown theme name normalises to one that exists.
         Theme.Apply(this, AppearanceStore.Load(_trace));
+
+        // Every window has its own title bar now; these are what its three buttons do.
+        WindowChromeCommands.Register();
+
+        // When Windows flips between light and dark, a choice that follows it re-applies. Checked
+        // at the moment it fires rather than when subscribing, so turning following on or off in
+        // the appearance dialog takes effect without resubscribing.
+        _systemTheme = SystemTheme.Watch(() =>
+        {
+            if (Dispatcher.HasShutdownStarted)
+            {
+                return;
+            }
+
+            Dispatcher.InvokeAsync(() =>
+            {
+                if (Theme.CurrentChoice.Follow == Theme.FollowWindows)
+                {
+                    Theme.Apply(this, Theme.CurrentChoice);
+                }
+            });
+        });
 
         try
         {
@@ -86,6 +111,9 @@ public partial class App : Application
         // released while the dispatcher is still alive to run any last teardown.
         _host?.Dispose();
         _host = null;
+
+        _systemTheme?.Dispose();
+        _systemTheme = null;
 
         // Last of all, so anything the teardown had to say is in the file before it closes.
         _trace?.Write(NetControl.Core.Persistence.EventSeverity.Info, "Stopped.");

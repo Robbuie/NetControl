@@ -10,6 +10,7 @@ using NetControl.App.Composition;
 using NetControl.App.Diagnostics;
 using NetControl.App.Serving;
 using NetControl.Core;
+using NetControl.Core.Capture;
 using NetControl.Core.Commissioning;
 using NetControl.Core.DeviceHealth;
 using NetControl.Core.Dhcp;
@@ -173,7 +174,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         Action<TftpSettings>? saveTftpSettings = null,
         IPinger? pinger = null,
         DeviceHealthReader? healthReader = null,
-        ServiceProbe? serviceProbe = null)
+        ServiceProbe? serviceProbe = null,
+        ICaptureProvider? capture = null)
     {
         ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentNullException.ThrowIfNull(nics);
@@ -226,6 +228,14 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             serviceProbe: serviceProbe,
             selectedAdapter: () => InterfaceBar.SelectedAdapter?.Nic);
 
+        Modbus = new ModbusViewModel(() => _project);
+
+        // Both raw-Ethernet tabs share one provider. Nothing in it is touched until a tab asks - a
+        // machine without Npcap never so much as looks for the driver.
+        ICaptureProvider frames = capture ?? new NpcapProvider();
+        Passive = new PassiveViewModel(dispatcher, () => _project, () => InterfaceBar.SelectedAdapter?.Nic, frames, oui);
+        Profinet = new ProfinetViewModel(() => _project, () => InterfaceBar.SelectedAdapter?.Nic, frames);
+
         InterfaceBar.PropertyChanged += OnInterfaceBarPropertyChanged;
 
         // The grid writes to the file; this is what carries the edit through to the dictionary the
@@ -263,6 +273,18 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
     /// <summary>One device's reachability, health and services, and pinging the whole plan.</summary>
     public DiagnosticsViewModel Diagnostics { get; }
+
+    /// <summary>The Modbus tab. Reads only.</summary>
+    public ModbusViewModel Modbus { get; }
+
+    /// <summary>The Passive tab: listen-only inventory. Needs Npcap.</summary>
+    public PassiveViewModel Passive { get; }
+
+    /// <summary>The PROFINET tab: DCP identify, name and address. Needs Npcap.</summary>
+    public ProfinetViewModel Profinet { get; }
+
+    /// <summary>Raised when something has been pointed at the Modbus tab, so the window can show it.</summary>
+    public event EventHandler? ModbusRequested;
 
     /// <summary>
     /// Raised when something has been pointed at the Diagnostics tab, so the window can bring it to
@@ -640,6 +662,23 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         DiagnosticsRequested?.Invoke(this, EventArgs.Empty);
     }
 
+    /// <summary>Points the Modbus tab at a plan row's planned address. Sends nothing.</summary>
+    public void ModbusPlanRow(DeviceRowViewModel row)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+
+        if (!row.TryBuild(out DeviceRecord? record) || record?.PlannedIp is not { } ip)
+        {
+            Log.AddNotice(
+                "That plan row has no address to read from.",
+                "Type its planned address first - a read goes to one address, and the tool does not guess one.");
+            return;
+        }
+
+        Modbus.SetTarget(ip, record.DisplayName ?? record.Mac.ToString());
+        ModbusRequested?.Invoke(this, EventArgs.Empty);
+    }
+
     /// <summary>
     /// Points the Diagnostics tab at a scanned device's address - the one it reported. Sends nothing.
     /// </summary>
@@ -801,7 +840,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         try
         {
             DiscoveryResult result =
-                await _discovery.ScanAsync(nic, cancellationToken: cancellationToken).ConfigureAwait(true);
+                await _discovery.ScanAsync(nic, DirectlyAsked(), cancellationToken).ConfigureAwait(true);
 
             _lastScan = result;
 
@@ -960,6 +999,30 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     ///
     /// <para>Never throws, for the same reason the other recorders do not.</para>
     /// </summary>
+    /// <summary>
+    /// Planned devices known to ignore a broadcast ListIdentity, asked at their own planned address
+    /// as well. Each one is checked as one host first; an address that is not is simply left out,
+    /// because the scan's broadcast still goes and a quirk must not be able to fail the whole scan.
+    /// </summary>
+    private List<IPAddress>? DirectlyAsked()
+    {
+        var targets = new List<IPAddress>();
+
+        foreach (DeviceRowViewModel row in Plan.Rows)
+        {
+            if (row.Quirks.HasFlag(DeviceQuirks.IgnoresBroadcastDiscovery)
+                && PlanValidation.TryParseIPv4(row.IpText?.Trim() ?? string.Empty, out IPAddress? ip)
+                && ip is not null
+                && UnicastTarget.TryCheck(ip, null, out _)
+                && !targets.Contains(ip))
+            {
+                targets.Add(ip);
+            }
+        }
+
+        return targets.Count == 0 ? null : targets;
+    }
+
     private void CompareWithLastScan(DiscoveryResult result)
     {
         NicInfo nic = result.Report.Nic;
@@ -1078,6 +1141,63 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>
+    /// The project's boot options, as stored. A value that no longer parses is left out and said
+    /// out loud rather than served.
+    /// </summary>
+    public BootOptions LoadBootOptions()
+    {
+        try
+        {
+            BootOptions boot = BootOptionsSettings.Load(_project.Settings, out IReadOnlyList<string> problems);
+
+            foreach (string problem in problems)
+            {
+                Log.AddNotice($"A stored DHCP boot option was not used: {problem}", "Open Listener > DHCP boot options and save it again.");
+            }
+
+            return boot;
+        }
+        catch (PersistenceException ex)
+        {
+            Log.AddNotice($"Could not read the DHCP boot options: {ex.Message}", ex.Remediation);
+            return BootOptions.None;
+        }
+    }
+
+    /// <summary>
+    /// Stores new boot options in the project and records the change. They take effect the next
+    /// time Serve starts; a running listener keeps what it started with, and the notice says so.
+    /// </summary>
+    public bool SaveBootOptions(BootOptions boot)
+    {
+        ArgumentNullException.ThrowIfNull(boot);
+
+        BootOptions before = LoadBootOptions();
+
+        try
+        {
+            BootOptionsSettings.Save(_project.Settings, boot);
+            _project.Events.Append(
+                EventSeverity.Info,
+                EventCategory.App,
+                $"DHCP boot options set to: {boot.Describe()} (were: {before.Describe()}).",
+                detail: new EventDetail().Add("operation", "bootOptions"));
+        }
+        catch (PersistenceException ex)
+        {
+            SetError($"Could not save the DHCP boot options: {ex.Message}", ex.Remediation);
+            return false;
+        }
+
+        Log.AddNotice(
+            $"DHCP boot options: {boot.Describe()}.",
+            RunState is ServerRunState.Listening
+                ? "The listener that is running keeps the options it started with. Stop and start Serve to use these."
+                : "Used from the next time Serve starts.");
+        return true;
+    }
+
     private bool CanStartWatch() => RunState is ServerRunState.Stopped or ServerRunState.Faulted;
 
     private bool CanStartServe() =>
@@ -1115,6 +1235,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             SendMode = UsePerSocketBind
                 ? ReplySendMode.PerSocketBind
                 : ReplySendMode.UnicastInterfaceOption,
+
+            // Read at start, not per reply: what a running listener serves must not change under it.
+            Boot = mode == DhcpServerMode.Serve ? LoadBootOptions() : BootOptions.None,
         };
 
         Log.Mode = mode;
@@ -1127,6 +1250,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             Log.AddNotice(mode == DhcpServerMode.Serve
                 ? $"Serving {PlannedDeviceCount} planned device(s) on {adapter?.DisplayName}."
                 : "Watching. Nothing will be transmitted.");
+
+            if (mode == DhcpServerMode.Serve && !options.Boot.IsEmpty)
+            {
+                Log.AddNotice($"Every reply also carries: {options.Boot.Describe()}.");
+            }
         }
         catch (DhcpBindException ex)
         {

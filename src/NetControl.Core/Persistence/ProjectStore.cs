@@ -38,6 +38,7 @@ public sealed class ProjectStore : IDisposable
         Assignments = new AssignmentRepository(this);
         Events = new EventLog(this);
         Scans = new ScanHistory(this);
+        Settings = new ProjectSettings(this);
         Project = LoadProject();
     }
 
@@ -64,6 +65,9 @@ public sealed class ProjectStore : IDisposable
 
     /// <summary>Every scan and what answered it. Schema version 2; see PLAN-TOOLKIT.md F5.</summary>
     public ScanHistory Scans { get; }
+
+    /// <summary>What belongs to the project rather than the laptop. Schema version 3.</summary>
+    public ProjectSettings Settings { get; }
 
     /// <summary>Highest schema version this build understands.</summary>
     public static int SupportedSchemaVersion => SchemaMigrations.CurrentVersion;

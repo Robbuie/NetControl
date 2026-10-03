@@ -33,5 +33,17 @@ public sealed record CommissionResult
     /// <summary>Only ever true when the caller allowed it. See <see cref="StaticIpRequest.AllowReset"/>.</summary>
     public bool ResetTheDevice { get; init; }
 
+    /// <summary>
+    /// The device accepted the configuration and is holding it until a reset nobody allowed. The
+    /// fact <see cref="QuirkLearning"/> turns into <see cref="DeviceQuirks.RequiresResetToApply"/>.
+    /// </summary>
+    public bool ResetPending { get; init; }
+
+    /// <summary>
+    /// The connection died after something had been written and before the sequence finished -
+    /// which, if it keeps happening, is <see cref="DeviceQuirks.DropsConnectionOnWrite"/>.
+    /// </summary>
+    public bool ConnectionDroppedAfterWrite { get; init; }
+
     public bool IsVerified => Outcome == CommissionOutcome.Verified;
 }

@@ -32,10 +32,16 @@ public partial class AppearanceWindow : Window
         ThemeBox.ItemsSource = Theme.Themes.Values;
         AccentBox.ItemsSource = Theme.Accents.Values;
         DensityBox.ItemsSource = Theme.Densities.Values;
+        LightBox.ItemsSource = Theme.Themes.Values.Where(t => Theme.LightThemes.Contains(t.Id)).ToList();
+        DarkBox.ItemsSource = Theme.Themes.Values.Where(t => !Theme.LightThemes.Contains(t.Id)).ToList();
 
         ThemeBox.SelectedValue = _start.ThemeName;
         AccentBox.SelectedValue = _start.Accent;
         DensityBox.SelectedValue = _start.Density;
+        LightBox.SelectedValue = _start.LightTheme;
+        DarkBox.SelectedValue = _start.DarkTheme;
+        FollowBox.IsChecked = _start.Follow == Theme.FollowWindows;
+        FollowPanel.IsEnabled = FollowBox.IsChecked == true;
         _loading = false;
 
         RefreshNotes();
@@ -45,7 +51,10 @@ public partial class AppearanceWindow : Window
     private AppearanceChoice Choice => Theme.Normalise(new AppearanceChoice(
         ThemeBox.SelectedValue as string,
         AccentBox.SelectedValue as string,
-        DensityBox.SelectedValue as string));
+        DensityBox.SelectedValue as string,
+        FollowBox.IsChecked == true ? Theme.FollowWindows : Theme.FollowOff,
+        LightBox.SelectedValue as string,
+        DarkBox.SelectedValue as string));
 
     private void OnChoiceChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -56,6 +65,17 @@ public partial class AppearanceWindow : Window
 
         RefreshNotes();
         Theme.Apply(Application.Current, Choice);
+    }
+
+    private void OnFollowChanged(object sender, RoutedEventArgs e)
+    {
+        FollowPanel.IsEnabled = FollowBox.IsChecked == true;
+
+        if (!_loading)
+        {
+            RefreshNotes();
+            Theme.Apply(Application.Current, Choice);
+        }
     }
 
     private void RefreshNotes()

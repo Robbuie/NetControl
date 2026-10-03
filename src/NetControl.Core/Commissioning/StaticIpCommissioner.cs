@@ -161,6 +161,7 @@ public sealed class StaticIpCommissioner(TimeProvider? timeProvider = null)
                     Remediation = "Power-cycle the device and commission it again to confirm, or re-run this with "
                         + "a reset allowed.",
                     WroteToDevice = true,
+                    ResetPending = true,
                 };
             }
 
@@ -178,6 +179,7 @@ public sealed class StaticIpCommissioner(TimeProvider? timeProvider = null)
                 Message = ex.Message,
                 Remediation = ex.Remediation,
                 WroteToDevice = wrote,
+                ConnectionDroppedAfterWrite = wrote,
                 ResetTheDevice = reset,
             };
         }
@@ -188,7 +190,7 @@ public sealed class StaticIpCommissioner(TimeProvider? timeProvider = null)
         Report(CommissionStep.Connect, $"Connecting to {request.DeviceAddress}:{request.Port}.");
 
         EnipSession session = await EnipSession
-            .ConnectAsync(request.DeviceAddress, request.Port, ConnectTimeout, cancellationToken)
+            .ConnectAsync(request.DeviceAddress, request.Port, ConnectTimeoutFor(request), cancellationToken)
             .ConfigureAwait(false);
 
         Report(CommissionStep.Connect, $"Session registered with {request.DeviceAddress}.");
@@ -232,7 +234,9 @@ public sealed class StaticIpCommissioner(TimeProvider? timeProvider = null)
 
         string lastProblem = "it never answered";
 
-        for (int attempt = 1; attempt <= VerifyAttempts; attempt++)
+        int attempts = VerifyAttemptsFor(request);
+
+        for (int attempt = 1; attempt <= attempts; attempt++)
         {
             if (attempt > 1 || reset)
             {
@@ -242,7 +246,7 @@ public sealed class StaticIpCommissioner(TimeProvider? timeProvider = null)
             try
             {
                 using EnipSession check = await EnipSession
-                    .ConnectAsync(at, request.Port, ConnectTimeout, cancellationToken)
+                    .ConnectAsync(at, request.Port, ConnectTimeoutFor(request), cancellationToken)
                     .ConfigureAwait(false);
 
                 var tcpIp = new TcpIpInterface(check);
@@ -263,7 +267,7 @@ public sealed class StaticIpCommissioner(TimeProvider? timeProvider = null)
             catch (EnipException ex)
             {
                 lastProblem = ex.Message;
-                Report(CommissionStep.Verify, $"Attempt {attempt} of {VerifyAttempts}: {at} is not answering yet.");
+                Report(CommissionStep.Verify, $"Attempt {attempt} of {attempts}: {at} is not answering yet.");
             }
         }
 
@@ -371,6 +375,17 @@ public sealed class StaticIpCommissioner(TimeProvider? timeProvider = null)
             WroteToDevice = wrote,
         };
     }
+
+    /// <summary>
+    /// A device known to have a slow stack gets three times the connect timeout. Learned from an
+    /// earlier attempt or ticked by hand - see <see cref="DeviceQuirks.SlowResponses"/>.
+    /// </summary>
+    private TimeSpan ConnectTimeoutFor(StaticIpRequest request) =>
+        request.Quirks.HasFlag(DeviceQuirks.SlowResponses) ? ConnectTimeout * 3 : ConnectTimeout;
+
+    /// <summary>And twice as long to come back after the write.</summary>
+    private int VerifyAttemptsFor(StaticIpRequest request) =>
+        request.Quirks.HasFlag(DeviceQuirks.SlowResponses) ? VerifyAttempts * 2 : VerifyAttempts;
 
     private void Report(CommissionStep step, string message, bool isFailure = false) =>
         Progress?.Invoke(this, new CommissionProgressEventArgs(step, message, isFailure));

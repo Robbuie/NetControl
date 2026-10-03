@@ -20,7 +20,12 @@ before changing anything that sends a packet.**
 | **Set static on all** | The same Set static over every ready row of the plan, one device at a time, after a confirmation that names each one. Stop lands between devices, never half way through one. |
 | **Ping** | One device, or every planned address at once into a Reach column. |
 | **Device diagnostics** | Reads a device's own account of itself over CIP - fault bits, address conflict detection, a configuration waiting for a reset, and every port's speed, duplex and error counters - and names the likely cause: a duplex mismatch, a damaged cable, multicast flooding. Read-only: it never clears a counter. Read twice to see which are still moving. |
-| **Service check** | Which of a short list of TCP services a device answers on - web page, Modbus, S7, OPC UA, EtherNet/IP - one connection at a time, nothing sent. |
+| **Service check** | Which of a short list of TCP services a device answers on - web page, Modbus, S7, MELSEC, OPC UA, EtherNet/IP - one connection at a time, and on each open port one read-only question that proves the protocol is really there. |
+| **Device quirks** | What each device is known to do wrong, learned from Set static or ticked by hand - and what NetControl does differently because of it. |
+| **Boot options** | Next server, TFTP server, boot file, domain and DNS for every reply a project serves. |
+| **Modbus** | Read registers, inputs and coils from one device, decoded every common way. Reads only. |
+| **Passive** | Lists every device heard on the wire without sending anything. Needs the free Npcap driver. |
+| **PROFINET** | DCP identify, then set one device's station name or address - confirmed, read back and recorded - or flash its LED. Needs Npcap. |
 | **Scan history** | Every scan is kept, and the next scan of the same subnet says what changed: a device that moved, a module swapped, firmware changed, something new, something silent. |
 | **Subnet calculator** | Network, broadcast, host range and whether another address is on it - opening on the selected adapter's own subnet. And this PC's own adapter error counters, because a bad patch lead looks like a device problem from everywhere else. |
 | **Report** | The whole commissioning record as one HTML page for the customer: every device, what it was served, every write and its readback, the scans, and the full event log. Prints to PDF. |

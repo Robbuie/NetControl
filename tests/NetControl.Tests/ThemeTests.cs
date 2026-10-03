@@ -32,7 +32,7 @@ public sealed class ThemeTests
     /// the token set, so a XAML file may use them and this test may not treat them as missing.
     /// </summary>
     private static readonly string[] Composed =
-        ["corner", "corner-sm", "accent-fill", "chrome-fill"];
+        ["corner", "corner-sm", "corner-lg", "accent-fill", "chrome-fill"];
 
     [Fact]
     public void Every_combination_resolves()
@@ -262,6 +262,52 @@ public sealed class ThemeTests
         // Cyan, and it matters which: the viewer is Drafting blue and the PDF app is Redline red,
         // so a third colour is what makes the three read as a family rather than as one app.
         Assert.Equal("cyan", Theme.Defaults.Accent);
+    }
+
+    /// <summary>File Manager's themeswitch.pick: following Windows picks the light or the dark theme.</summary>
+    [Fact]
+    public void Following_windows_picks_the_light_or_dark_theme()
+    {
+        var choice = new AppearanceChoice("blueprint", "cyan", "normal", Theme.FollowWindows, "paper", "graphite");
+
+        Assert.Equal("paper", Theme.Effective(choice, windowsLight: true));
+        Assert.Equal("graphite", Theme.Effective(choice, windowsLight: false));
+
+        // Windows would not say: the picker's own theme, never a guess.
+        Assert.Equal("blueprint", Theme.Effective(choice, windowsLight: null));
+    }
+
+    [Fact]
+    public void Not_following_ignores_windows()
+    {
+        var choice = new AppearanceChoice("blueprint", "cyan", "normal", Theme.FollowOff, "paper", "graphite");
+
+        Assert.Equal("blueprint", Theme.Effective(choice, windowsLight: true));
+    }
+
+    /// <summary>A first run follows Windows; junk in the follow field never does anything surprising.</summary>
+    [Fact]
+    public void A_new_install_follows_windows_and_junk_falls_back()
+    {
+        Assert.Equal(Theme.FollowWindows, Theme.Defaults.Follow);
+
+        AppearanceChoice junk = Theme.Normalise(new AppearanceChoice("dark", "cyan", "normal", "sometimes", "nope", "nope"));
+        Assert.Equal(Theme.FollowWindows, junk.Follow);
+        Assert.Contains(junk.LightTheme!, Theme.Themes.Keys);
+        Assert.Contains(junk.DarkTheme!, Theme.Themes.Keys);
+
+        AppearanceChoice off = Theme.Normalise(new AppearanceChoice("dark", "cyan", "normal", Theme.FollowOff));
+        Assert.Equal(Theme.FollowOff, off.Follow);
+    }
+
+    [Fact]
+    public void Every_light_theme_is_light_and_every_other_is_dark()
+    {
+        foreach (string theme in Theme.Themes.Keys)
+        {
+            IReadOnlyDictionary<string, string> tokens = Theme.Tokens(new AppearanceChoice(theme, "cyan", "normal"));
+            Assert.Equal(Theme.LightThemes.Contains(theme) ? "1" : "0", tokens["is-light"]);
+        }
     }
 
     // ------------------------------------------------------------------

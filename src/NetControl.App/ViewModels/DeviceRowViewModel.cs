@@ -121,11 +121,39 @@ public sealed partial class DeviceRowViewModel : ObservableObject
     public long Id { get; internal set; }
 
     /// <summary>
-    /// Flags carried through an edit untouched. Nothing sets these yet - they arrive with a device
-    /// that misbehaved on a bench - but an edit that silently dropped them would be a quiet way to
-    /// lose the workaround that made a panel come up.
+    /// What this device is known to do wrong. Learned from a Set static that went a particular way,
+    /// or ticked by hand in the quirk editor; carried through every other edit untouched, because an
+    /// edit that silently dropped them would be a quiet way to lose the workaround that made a panel
+    /// come up.
     /// </summary>
     public DeviceQuirks Quirks { get; internal set; }
+
+    /// <summary>"reset, slow" - the grid cell.</summary>
+    public string QuirksText => DeviceQuirkCatalog.ShortText(Quirks);
+
+    public string? QuirksTooltip =>
+        Quirks == DeviceQuirks.None
+            ? "No known quirks. Right-click > Device quirks to add one."
+            : DeviceQuirkCatalog.LongText(Quirks);
+
+    /// <summary>
+    /// Replaces the quirks and asks the grid to write the row, the same way a typed cell does.
+    /// Returns false when nothing changed, so the caller does not record an edit that was not one.
+    /// </summary>
+    public bool ApplyQuirks(DeviceQuirks quirks)
+    {
+        if (quirks == Quirks)
+        {
+            return false;
+        }
+
+        Quirks = quirks;
+        OnPropertyChanged(nameof(Quirks));
+        OnPropertyChanged(nameof(QuirksText));
+        OnPropertyChanged(nameof(QuirksTooltip));
+        Edited?.Invoke(this, EventArgs.Empty);
+        return true;
+    }
 
     /// <summary>The MAC as parsed, or <see cref="MacAddress.Empty"/> while the cell does not parse.</summary>
     public MacAddress Mac { get; private set; }

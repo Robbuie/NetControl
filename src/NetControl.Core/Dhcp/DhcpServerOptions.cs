@@ -39,4 +39,10 @@ public sealed record DhcpServerOptions
     /// state - that is the entire complaint about the tool this replaces.
     /// </summary>
     public bool RefuseOnSeriousPortConflict { get; init; } = true;
+
+    /// <summary>
+    /// Next server, TFTP server, boot file, domain and DNS for every reply. Empty by default, which
+    /// leaves replies exactly as they were before these existed.
+    /// </summary>
+    public BootOptions Boot { get; init; } = BootOptions.None;
 }

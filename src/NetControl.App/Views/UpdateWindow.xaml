@@ -7,10 +7,7 @@
         ResizeMode="NoResize"
         ShowInTaskbar="False"
         WindowStartupLocation="CenterOwner"
-        Background="{DynamicResource bg-0}"
-        FontFamily="{DynamicResource font}"
-        FontSize="{DynamicResource ui-font}"
-        Foreground="{DynamicResource txt-0}">
+        Style="{StaticResource ChromeDialog}">
 
   <!-- Only ever shown when there IS an update. The other three outcomes of a check are one
        sentence each and belong in a message box; a dialog with a disabled Install button on it is

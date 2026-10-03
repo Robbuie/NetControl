@@ -16,7 +16,8 @@
 -->
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-                    xmlns:sys="clr-namespace:System;assembly=System.Runtime">
+                    xmlns:sys="clr-namespace:System;assembly=System.Runtime"
+                    xmlns:appearance="clr-namespace:NetControl.App.Appearance">
 
   <!-- ===================================================================== -->
   <!--  Base text                                                            -->
@@ -1091,5 +1092,181 @@
     <Setter Property="Width" Value="1" />
     <Setter Property="Margin" Value="10,3" />
   </Style>
+
+  <!-- ===================================================================== -->
+  <!--  Cards and the window frame - File Manager 0.26's look               -->
+  <!--                                                                       -->
+  <!--  The window is a backdrop (bg-0) with the title bar sitting on it,     -->
+  <!--  and each working area is a rounded card (bg-2, radius-lg) on that     -->
+  <!--  backdrop, rather than panels ruled off from each other. Same values   -->
+  <!--  as File Manager's QFrame[pane="true"].                                -->
+  <!-- ===================================================================== -->
+
+  <Style x:Key="Card" TargetType="Border">
+    <Setter Property="Background" Value="{DynamicResource bg-2}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource line-soft}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="{DynamicResource corner-lg}" />
+    <Setter Property="Padding" Value="10" />
+  </Style>
+
+  <!-- A caption button: 46 wide, the Windows size, flat until hovered. The glyph is a TextBlock with
+       its own FontFamily set locally, because the implicit TextBlock style above would otherwise
+       put the UI font on it and the icon would render as a box. -->
+  <Style x:Key="CaptionButton" TargetType="Button">
+    <Setter Property="Width" Value="46" />
+    <Setter Property="Foreground" Value="{DynamicResource txt-1}" />
+    <Setter Property="Focusable" Value="False" />
+    <Setter Property="WindowChrome.IsHitTestVisibleInChrome" Value="True" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Border x:Name="Back" Background="Transparent">
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Back" Property="Background" Value="{DynamicResource bg-3}" />
+              <Setter Property="Foreground" Value="{DynamicResource txt-0}" />
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+              <Setter TargetName="Back" Property="Background" Value="{DynamicResource bg-4}" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- Close: Windows' own red on hover, white glyph - it follows neither theme nor accent, because
+       it is what every other window on the screen does. -->
+  <Style x:Key="CloseCaptionButton" TargetType="Button" BasedOn="{StaticResource CaptionButton}">
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Border x:Name="Back" Background="Transparent">
+            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+              <Setter TargetName="Back" Property="Background" Value="{DynamicResource close-hover}" />
+              <Setter Property="Foreground" Value="#ffffff" />
+            </Trigger>
+            <Trigger Property="IsPressed" Value="True">
+              <Setter TargetName="Back" Property="Background" Value="{DynamicResource close-press}" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- Every window's frame: no system title bar, our own row in its place. It drags the window
+       (WindowChrome's caption), double-clicks to maximise, and keeps Windows' snap, resize and
+       system menu, because WindowChrome leaves all of those to Windows. A window may put content
+       beside the title through appearance:Chrome.TitleContent - the main window's menu goes there. -->
+  <Style x:Key="ChromeWindow" TargetType="Window">
+    <Setter Property="Background" Value="{DynamicResource bg-0}" />
+    <Setter Property="Foreground" Value="{DynamicResource txt-0}" />
+    <Setter Property="FontFamily" Value="{DynamicResource font}" />
+    <Setter Property="FontSize" Value="{DynamicResource ui-font}" />
+    <Setter Property="WindowChrome.WindowChrome">
+      <Setter.Value>
+        <WindowChrome CaptionHeight="38"
+                      ResizeBorderThickness="6"
+                      GlassFrameThickness="0"
+                      CornerRadius="0"
+                      UseAeroCaptionButtons="False" />
+      </Setter.Value>
+    </Setter>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Window">
+          <Border x:Name="Frame"
+                  Background="{TemplateBinding Background}"
+                  BorderBrush="{DynamicResource line}"
+                  BorderThickness="1">
+            <DockPanel>
+              <Grid DockPanel.Dock="Top" Height="38" Background="{DynamicResource bg-0}">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="Auto" />
+                  <ColumnDefinition Width="Auto" />
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <!-- The family mark: an accent square, like File Manager's. -->
+                <Border Grid.Column="0" Width="22" Height="22" Margin="10,0,6,0"
+                        VerticalAlignment="Center"
+                        CornerRadius="{DynamicResource corner-sm}"
+                        Background="{DynamicResource accent}">
+                  <TextBlock Text="N" FontWeight="Bold" FontSize="12" Foreground="#ffffff"
+                             HorizontalAlignment="Center" VerticalAlignment="Center" />
+                </Border>
+
+                <ContentPresenter Grid.Column="1" VerticalAlignment="Center"
+                                  WindowChrome.IsHitTestVisibleInChrome="True"
+                                  Content="{Binding (appearance:Chrome.TitleContent), RelativeSource={RelativeSource TemplatedParent}}" />
+
+                <TextBlock x:Name="TitleText" Grid.Column="2" Margin="12,0"
+                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
+                           Foreground="{DynamicResource txt-1}"
+                           Text="{TemplateBinding Title}" />
+
+                <StackPanel Grid.Column="3" Orientation="Horizontal">
+                  <Button x:Name="MinButton" Style="{StaticResource CaptionButton}" ToolTip="Minimise"
+                          Command="{x:Static SystemCommands.MinimizeWindowCommand}">
+                    <TextBlock FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="10" Text="&#xE921;" />
+                  </Button>
+                  <Button x:Name="MaxButton" Style="{StaticResource CaptionButton}" ToolTip="Maximise"
+                          Command="{x:Static SystemCommands.MaximizeWindowCommand}">
+                    <Grid>
+                      <TextBlock x:Name="MaxGlyph" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="10" Text="&#xE922;" />
+                      <TextBlock x:Name="RestoreGlyph" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="10" Text="&#xE923;"
+                                 Visibility="Collapsed" />
+                    </Grid>
+                  </Button>
+                  <Button Style="{StaticResource CloseCaptionButton}" ToolTip="Close"
+                          Command="{x:Static SystemCommands.CloseWindowCommand}">
+                    <TextBlock FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="10" Text="&#xE8BB;" />
+                  </Button>
+                </StackPanel>
+              </Grid>
+
+              <AdornerDecorator>
+                <ContentPresenter />
+              </AdornerDecorator>
+            </DockPanel>
+          </Border>
+
+          <ControlTemplate.Triggers>
+            <!-- A maximised WindowChrome window hangs over the screen edge by the resize border;
+                 padding by exactly that keeps the title bar and the status bar on screen. -->
+            <Trigger Property="WindowState" Value="Maximized">
+              <Setter TargetName="Frame" Property="BorderThickness" Value="0" />
+              <Setter TargetName="Frame" Property="Padding" Value="{x:Static SystemParameters.WindowResizeBorderThickness}" />
+              <Setter TargetName="MaxGlyph" Property="Visibility" Value="Collapsed" />
+              <Setter TargetName="RestoreGlyph" Property="Visibility" Value="Visible" />
+              <Setter TargetName="MaxButton" Property="Command" Value="{x:Static SystemCommands.RestoreWindowCommand}" />
+              <Setter TargetName="MaxButton" Property="ToolTip" Value="Restore" />
+            </Trigger>
+            <Trigger Property="IsActive" Value="False">
+              <Setter TargetName="TitleText" Property="Foreground" Value="{DynamicResource txt-2}" />
+            </Trigger>
+            <Trigger Property="ResizeMode" Value="NoResize">
+              <Setter TargetName="MinButton" Property="Visibility" Value="Collapsed" />
+              <Setter TargetName="MaxButton" Property="Visibility" Value="Collapsed" />
+            </Trigger>
+            <Trigger Property="ResizeMode" Value="CanMinimize">
+              <Setter TargetName="MaxButton" Property="Visibility" Value="Collapsed" />
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- Dialogs: the same frame. A separate key so a dialog can diverge later without touching the main window. -->
+  <Style x:Key="ChromeDialog" TargetType="Window" BasedOn="{StaticResource ChromeWindow}" />
 
 </ResourceDictionary>

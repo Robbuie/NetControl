@@ -188,3 +188,31 @@ project file on a different machine months later and say the same thing.
   which was extended from the same reading of the spec - so a shared misreading of the counter
   layout passes both sides. The byte-level tests assert literal offsets for that reason, but the
   first read of a real adapter is the check.
+
+---
+
+# Part G - the second batch (0.9.0)
+
+Asked for after 0.8.0: items 1 and 3-7 from the gap list, every one with a screen, no command line,
+nothing that costs money (so no code signing). Built as one batch so it is one CI round.
+
+| | What | Where |
+|---|---|---|
+| G1 | **Protocol-verified service check.** One read-only handshake per known port - EtherNet/IP ListIdentity, Modbus 43/14, S7 COTP CR, MELSEC 3E Read CPU model, OPC UA Hello, HTTP HEAD, FTP/SSH/Telnet banners. "verified" or "open, unproven". | `Core/Reachability/*Handshake.cs`, Diagnostics tab |
+| G2 | **Device quirk table.** Learned from Set static outcomes (evidence only, never a timeout), editable per row, each flag saying what the tool does about it. | `DeviceQuirkCatalog`, `QuirkLearning`, Quirks column, `QuirksWindow` |
+| G3 | **DHCP boot options.** Next server, TFTP server, boot file, domain, DNS - per project, schema v3. | `Core/Dhcp/BootOptions.cs`, `Persistence/ProjectSettings.cs`, `BootOptionsWindow` |
+| G4 | **Passive inventory.** Listen-only; ARP, BOOTP/DHCP, LLDP, PROFINET, EtherNet/IP. Optional Npcap. | `Core/Capture`, `Core/Passive`, Passive tab |
+| G5 | **Modbus register read** (reads only) and **PROFINET DCP** identify / set name / set IP / flash, each Set confirmed and read back. DCP needs Npcap. | `Core/Modbus`, `Core/Profinet`, Modbus and PROFINET tabs |
+| G6 | **File Manager look.** Own title bar with the menu in it, rounded cards, theme following Windows light/dark. | `Appearance/Controls.xaml` (ChromeWindow, Card), `SystemTheme`, `Theme.Effective` |
+
+Decisions worth keeping:
+
+- **Npcap is loaded by path, lazily, through `NativeLibrary`** - not a `DllImport` and not a package.
+  A machine without it never looks for it; the two tabs that need it say what to install.
+- **A protocol exception or refusal still proves the protocol.** Modbus "illegal function", an S7
+  disconnect request and an OPC UA ERR are all answers only the real stack gives.
+- **Slowness is never learned.** A timeout is what a wrong VLAN looks like too. Only flags the device
+  itself demonstrated are learned; the rest are ticked by a person, and every change is a record row.
+- **A DCP Set is sent once.** No retry on a write; the readback decides.
+- **Boot options go in the header always, in DHCP options only when asked for** (RFC 2131), so a
+  small adapter is never handed options it did not expect.

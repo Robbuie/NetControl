@@ -373,7 +373,10 @@ public sealed partial class DiagnosticsViewModel : ObservableObject
             }).ConfigureAwait(true);
     }
 
-    /// <summary>Connects to each of a short list of TCP ports, one at a time, and closes at once.</summary>
+    /// <summary>
+    /// Connects to each of a short list of TCP ports, one at a time, and on an open one asks the
+    /// smallest read-only question that proves which protocol is there.
+    /// </summary>
     [RelayCommand(CanExecute = nameof(CanRunOnTarget))]
     private async Task CheckServicesAsync(CancellationToken cancellationToken)
     {
@@ -413,7 +416,11 @@ public sealed partial class DiagnosticsViewModel : ObservableObject
                         address!.ToString(),
                         new EventDetail()
                             .Add("ports", result.Checks.Count)
-                            .Add("open", string.Join(",", result.Open.Select(c => c.Service.Port))));
+                            .Add("open", string.Join(",", result.Open.Select(c => c.Service.Port)))
+                            .Add("verified", string.Join(",", result.Verified.Select(c => c.Service.Port)))
+                            .Add("protocols", string.Join("; ", result.Open
+                                .Where(c => c.Protocol is not null)
+                                .Select(c => $"{c.Service.Port}: {c.Protocol}"))));
                 }).ConfigureAwait(true);
         }
         finally

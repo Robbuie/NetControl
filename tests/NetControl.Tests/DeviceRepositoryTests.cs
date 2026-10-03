@@ -95,6 +95,19 @@ public class DeviceRepositoryTests
         Assert.Null(read.Notes);
     }
 
+    /// <summary>A CSV has no quirks column; re-importing must not forget what Set static learned.</summary>
+    [Fact]
+    public void ReimportingKeepsTheQuirks()
+    {
+        using var temp = new TempProject();
+        using ProjectStore store = temp.Open();
+
+        store.Devices.Upsert(Planned() with { Quirks = DeviceQuirks.RequiresResetToApply });
+        store.Devices.Upsert(Planned());
+
+        Assert.Equal(DeviceQuirks.RequiresResetToApply, store.Devices.Find(Mac)!.Quirks);
+    }
+
     [Fact]
     public void ImportsAWholePlanInOneGo()
     {

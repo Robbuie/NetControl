@@ -12,6 +12,7 @@ public static class DhcpOptionCode
     public const byte Router = 3;
     public const byte DomainNameServer = 6;
     public const byte HostName = 12;
+    public const byte DomainName = 15;
     public const byte RequestedIpAddress = 50;
     public const byte IpAddressLeaseTime = 51;
 
@@ -24,5 +25,11 @@ public static class DhcpOptionCode
     public const byte Message = 56;
     public const byte VendorClassIdentifier = 60;
     public const byte ClientIdentifier = 61;
+
+    /// <summary>TFTP server name (RFC 2132 9.4). The DHCP-option twin of the header's sname field.</summary>
+    public const byte TftpServerName = 66;
+
+    /// <summary>Bootfile name (RFC 2132 9.5). The DHCP-option twin of the header's file field.</summary>
+    public const byte BootFileName = 67;
     public const byte End = 255;
 }

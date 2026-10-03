@@ -24,9 +24,11 @@ sends packets.
   `SQLitePCLRaw.bundle_e_sqlite3` is pinned to 2.1.12 alongside it: the provider still resolves
   2.1.11 transitively, whose SQLite predates 3.50.2 and fails NuGetAudit on CVE-2025-6965. Drop the
   pin when the provider resolves 2.1.12 or later by itself.
-- No npcap dependency in Phases 1-3; plain UDP/TCP sockets only. Adding a driver dependency
-  makes deployment on locked-down plant laptops much harder, so it stays out until PROFINET
-  DCP genuinely requires it.
+- **Npcap is optional, never a dependency.** Only the Passive and PROFINET tabs use it (0.9.0),
+  through `Core/Capture`, which loads `%SystemRoot%\System32\Npcap\wpcap.dll` by path at run
+  time - no package, no `DllImport` - and only when one of those tabs is opened. A machine without
+  it never looks for the file, and every other feature uses plain UDP/TCP sockets. Keep it that way:
+  a core path that needs the driver is a tool that will not run on a locked-down plant laptop.
 
 Keep dependencies few. Every package added is a package someone has to justify to plant IT.
 
@@ -49,7 +51,12 @@ src/NetControl.Core/          network engine - MUST NOT reference any UI assembl
     Commissioning/            set static / disable BOOTP, with the readback
     Discovery/                the scan + ARP join, the plan-against-segment comparison, and the
                               scan-against-last-scan diff (InventoryDiff)
-    Reachability/             ping, the TCP service check, and UnicastTarget - the one-host rule
+    Reachability/             ping, the TCP service check, its protocol handshakes, and
+                              UnicastTarget - the one-host rule
+    Modbus/                   Modbus/TCP reads - there is no write, by design
+    Capture/                  optional Npcap frame channel (IFrameChannel) and the Ethernet header
+    Passive/                  listen-only inventory: frame parsers and the per-MAC fold
+    Profinet/                 PROFINET DCP codec, station-name rules, identify/get/set client
     DeviceHealth/             the read-only CIP diagnostics read and what its counters mean
     Reporting/                the commissioning report, and reading outcomes back out of the record
     Diagnostics/              the rolling diagnostic log - NOT the commissioning record
@@ -197,6 +204,17 @@ These are hard rules, not preferences:
   service (Get_and_Clear, 0x4C). That is a write, and it destroys the history the next person needs;
   two reads and a subtraction give the same figure. `DeviceHealthReader` sends Get_Attribute_Single
   and nothing else.
+- **The service check's handshakes are reads.** Each one (`IProtocolHandshake`) asks for an
+  identity, a model, a hello or a HEAD - nothing that writes, and nothing sent on a port with no
+  handshake. With `VerifyProtocols` off nothing is sent at all.
+- **Modbus is read-only.** `ModbusFunction` has no write function and `ModbusReader` no write
+  method. Adding one is a change to these rules first, not a feature request.
+- **Passive listening transmits nothing.** `Core/Passive` has no frame channel - bytes in, sightings
+  out - so it cannot send however it is driven.
+- **A PROFINET Set goes to one MAC the user selected, after a confirmation that names it, and is
+  read back.** Identify All (multicast) is discovery and the only frame sent to more than one device.
+  `DcpClient` refuses a multicast or broadcast target, sends a Set once with no retry, and the tab
+  calls it done only when a DCP Get shows the new value. A null confirmation refuses.
 - **Set static on all is the single sequence, repeated, behind a confirmation that names every
   device.** One device at a time, each unicast at its own planned address; Stop lands between
   devices, never inside one. A null confirmation callback refuses rather than proceeds.
@@ -829,6 +847,46 @@ scan-changes panel, the subnet calculator window and the report in a browser. **
 never read a real device**, and the simulator's counters were written from the same reading of the
 spec - `EthernetLinkCodecTests` pins the offsets with literal bytes for that reason, but the first
 read of a real adapter beside its own web page's counters is the real check.
+
+**0.9.0 - the second toolkit batch. Written in a session with no .NET SDK and not yet compiled.**
+Every C# file parses under the tree-sitter C# grammar, every XAML file is well-formed XML with no
+literal colour and no unknown token; semantics are CI's to check.
+
+- `Reachability/` gains `IProtocolHandshake` and one per protocol: `EnipHandshake` (ListIdentity over
+  the TCP connection, parsed by `ListIdentityReply`), `ModbusHandshake` (function 43/14 - an
+  exception reply still confirms Modbus), `IsoTsapHandshake` (COTP CR to rack 0 slot 2; a refusal
+  still confirms ISO-on-TCP), `MelsecHandshake` (3E Read CPU model, port 5007 added),
+  `OpcUaHandshake` (Hello), `HttpHandshake` (HEAD) and `BannerHandshake` (FTP/SSH/Telnet greet first,
+  nothing sent). `ServiceCheck.Protocol` carries the verdict; "open, unproven" is amber.
+- Quirks: `DeviceQuirkCatalog` names every flag and says what the tool does about it;
+  `QuirkLearning` turns a `CommissionResult` into flags **only from evidence the device gave**
+  (`ResetPending` and `ConnectionDroppedAfterWrite` are new on the result) and never learns slowness,
+  because a timeout is not evidence. `SlowResponses` triples the connect timeout and doubles the
+  readback; `IgnoresBroadcastDiscovery` adds the planned address to every scan as a unicast probe.
+  `DeviceRepository.Upsert` now ORs quirks, so a CSV re-import keeps them.
+- Schema version 3: a `Setting` key/value table (`ProjectSettings`). `BootOptions` + `BootOptionsSettings`:
+  siaddr/sname/file always, options 66/67/15/6 only when the client's request list asks or it sent
+  none. Read when Serve starts, never per reply.
+- `Modbus/` - `ModbusReader`, `ModbusFrame`, `ModbusValueRow` (every decoding, both word orders,
+  both numberings). The tab polls at a fixed one second and records start and stop, not each read.
+- `Capture/` - `NpcapNative` resolves wpcap by path through `NativeLibrary`, all `IntPtr`, no unsafe;
+  `NpcapChannel` reads on a background thread with a 250 ms driver timeout so Dispose is prompt, and
+  closes the handle only after the thread has stopped. `NpcapProvider` maps a `NicInfo` to
+  `\Device\NPF_{GUID}` by IPv4 index and reads Npcap's admin-only flag to say so.
+- `Passive/` and `Profinet/` - see the safety rules above. `SimulatedDcpNetwork` in the tests is a
+  DCP segment that answers Identify, Get and Set and keeps every frame sent.
+- App: Modbus, Passive and PROFINET tabs; Quirks column and row menu; Listener > DHCP boot options;
+  `ChromeWindow`/`ChromeDialog` styles (WindowChrome, our own caption buttons through
+  `WindowChromeCommands`, the menu in the title bar through `Chrome.TitleContent`), `Card` style
+  (radius-lg 12, File Manager's pane card), and `SystemTheme` + `Theme.Effective` for following
+  Windows' light/dark mode. An appearance file from before 0.9.0 keeps its theme (follow = off).
+
+**Never on screen:** all of the above. Specifically worth looking at first: the title bar (drag,
+double-click, snap, the three buttons, maximised on a second monitor), the menu in it (Alt+F, and
+that every menu command still works - the menu's DataContext arrives through the template), the
+cards in each theme, and the theme following Windows when the Windows setting is flipped.
+**Nothing in `Capture/` has run against a real Npcap**: the offsets in `pcap_pkthdr` and
+`bpf_program` are the documented Windows x64 layout, and the first real run is the check.
 
 ### Pick up here
 

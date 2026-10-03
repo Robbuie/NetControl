@@ -25,9 +25,9 @@ internal static class SchemaMigrations
     /// Highest schema version this build understands. Always equal to <see cref="Steps"/>.Count -
     /// step index <c>i</c> takes the file from version <c>i</c> to version <c>i + 1</c>.
     /// </summary>
-    public const int CurrentVersion = 2;
+    public const int CurrentVersion = 3;
 
-    public static IReadOnlyList<string> Steps { get; } = [V1, V2];
+    public static IReadOnlyList<string> Steps { get; } = [V1, V2, V3];
 
     /// <summary>
     /// Initial schema. The table definitions are the ones written out in ROADMAP.md; the triggers
@@ -154,6 +154,19 @@ internal static class SchemaMigrations
         BEGIN
             SELECT RAISE(ABORT, 'The ScanSighting table is append-only: rows may not be deleted.');
         END;
+        """;
+
+    /// <summary>
+    /// Project settings (0.9.0): a key and a value, for what belongs to the project rather than to
+    /// the laptop - the DHCP boot options first. Not append-only, unlike the record: a setting is
+    /// the current intent, and every change to one is written to <c>Event</c> as it happens, which
+    /// is where its history lives.
+    /// </summary>
+    private const string V3 = """
+        CREATE TABLE Setting (
+            Key    TEXT PRIMARY KEY,
+            Value  TEXT NOT NULL
+        );
         """;
 
     /// <summary>
