@@ -107,8 +107,8 @@ public class ModbusReaderTests
     [Fact]
     public void ReferencesUseSixDigitsPastTheFiveDigitRange()
     {
-        Assert.Equal("30001", ModbusValueRow.Reference(3, 0));
-        Assert.Equal("410000", ModbusValueRow.Reference(4, 9999));
+        Assert.Equal("30001", ModbusValueRow.ReferenceFor(3, 0));
+        Assert.Equal("410000", ModbusValueRow.ReferenceFor(4, 9999));
     }
 
     private static ModbusReadRequest Request(FakeModbusServer server, ModbusFunction function, ushort start, ushort count) => new()

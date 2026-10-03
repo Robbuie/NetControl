@@ -57,7 +57,7 @@ public sealed record ModbusValueRow
             rows.Add(new ModbusValueRow
             {
                 Address = address,
-                Reference = Reference(result.Request.TablePrefix, address),
+                Reference = ReferenceFor(result.Request.TablePrefix, address),
                 Raw = result.Values[i],
                 FloatText = f,
                 Int32Text = s32,
@@ -72,7 +72,7 @@ public sealed record ModbusValueRow
     /// 40001-style when the address fits five digits, 6-digit 400001-style when it does not - the
     /// two conventions manuals actually print.
     /// </summary>
-    public static string Reference(int prefix, int address) =>
+    public static string ReferenceFor(int prefix, int address) =>
         address < 9999
             ? (prefix * 10000 + address + 1).ToString(CultureInfo.InvariantCulture)
             : (prefix * 100000 + address + 1).ToString(CultureInfo.InvariantCulture);
