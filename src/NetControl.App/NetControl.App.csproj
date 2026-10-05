@@ -40,6 +40,17 @@
          runtime down. The publish command that produces the single exe is in CLAUDE.md and in
          this project's README; it is not repeated here, because an XML comment cannot contain a
          double hyphen and every switch it needs has one. -->
+
+    <!-- The one packaging setting that does live here, because it is inert outside a single-file
+         publish: it pins no RuntimeIdentifier and changes nothing about build or test. WPF ships
+         five native DLLs (PresentationNative_cor3, wpfgfx_cor3, PenImc_cor3, D3DCompiler_47_cor3,
+         vcruntime140_cor3), and a single-file publish leaves native DLLs loose beside the exe
+         unless told otherwise. The installer and the release carry only the exe, so 0.9.0 reached
+         machines without them and died with DllNotFoundException on PresentationNative_cor3 while
+         creating its first window - no window, no message. This bundles them into the exe, which
+         extracts them on first run. Kept here rather than in tools/publish.ps1 so that a publish
+         typed by hand from the README gets it too. -->
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
   </PropertyGroup>
 
   <ItemGroup>

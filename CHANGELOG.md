@@ -4,6 +4,17 @@ Newest first. The release workflow copies a version's section onto its GitHub re
 write it for the person deciding whether to install the update. The heading has to start
 `## <version>` for that to find it.
 
+## 0.9.1 - fixes NetControl not opening after install
+
+- **0.9.0 did not start on a machine that had not built it.** Opening it did nothing: no window, no
+  error. The exe was missing five native DLLs that WPF needs to draw its first window, because the
+  publish left them as loose files beside the exe and the installer and release only carry the exe.
+  They are now bundled inside `NetControl.exe` and unpacked on first run. Nothing else changed.
+- **If you installed 0.9.0, install this one by hand.** A copy that cannot start cannot check for its
+  own update. Run `NetControl-Setup-0.9.1.exe` over the top; your projects and settings are kept.
+- The build now refuses to publish if anything other than the exe is left in the output folder, so
+  this cannot ship silently again.
+
 ## 0.9.0 - verified services, device quirks, boot options, Modbus, PROFINET, passive listening and a new look
 
 Project files written by this version are schema version 3 (project settings, for the DHCP boot

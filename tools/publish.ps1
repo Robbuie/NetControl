@@ -115,6 +115,17 @@ if ($LASTEXITCODE -ne 0) { throw 'Publish failed.' }
 $exe = Join-Path $output 'NetControl.exe'
 if (-not (Test-Path $exe)) { throw "Expected $exe and it is not there." }
 
+# The exe is the whole product: the installer and the release both carry it alone. Anything else the
+# publish left beside it is something an installed copy will not have. A loose DLL here is exactly how
+# 0.9.0 shipped an exe that could not start (WPF's native DLLs, before
+# IncludeNativeLibrariesForSelfExtract was set), and nothing caught it, because the tests never launch
+# the published exe. So a loose DLL is a failed publish, here and in the release workflow alike.
+$loose = @(Get-ChildItem -Path $output -Filter '*.dll' -File)
+if ($loose.Count -gt 0) {
+    $names = ($loose | ForEach-Object { $_.Name }) -join ', '
+    throw "The publish left DLLs beside the exe that the installer would not ship: $names. Bundle them into the single file (IncludeNativeLibrariesForSelfExtract in NetControl.App.csproj) rather than shipping them loose."
+}
+
 # So a copy that arrived by email or on a USB stick can be checked against the one that was built.
 $hash = (Get-FileHash $exe -Algorithm SHA256).Hash
 "$hash  NetControl.exe" | Set-Content -Path "$exe.sha256" -Encoding ascii
