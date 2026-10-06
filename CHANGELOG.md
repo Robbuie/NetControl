@@ -4,7 +4,7 @@ Newest first. The release workflow copies a version's section onto its GitHub re
 write it for the person deciding whether to install the update. The heading has to start
 `## <version>` for that to find it.
 
-## Unreleased
+## 0.9.2 - a user guide in the Help menu
 
 - **A user guide, in the Help menu.** Help > User guide, or F1 anywhere in the main window, opens
   the full guide: a quick start for commissioning a panel, every tab and menu, the device quirks,
