@@ -66,6 +66,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Help > User guide. The repository's README, compiled in rather than copied beside the exe,
+         because the release ships the exe alone and the help has to be there on a laptop with no
+         route out. One file for GitHub and for the app, so the two cannot drift apart. The
+         LogicalName is what HelpDocument.ResourceName asks for. -->
+    <EmbeddedResource Include="..\..\README.md" LogicalName="NetControl.README.md" Link="Help\README.md" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- "UI logic lives in view models and is testable without a window." The view models are
          deliberately free of WPF types so the test project can construct them directly. -->
     <InternalsVisibleTo Include="NetControl.Tests" />

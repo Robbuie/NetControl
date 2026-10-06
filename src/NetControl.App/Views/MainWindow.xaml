@@ -70,6 +70,10 @@
                     ToolTip="Opens the Diagnostics tab on the selected plan row's device." />
         </MenuItem>
         <MenuItem Header="_Help">
+          <!-- The README, compiled into the exe, so it is there on a laptop with no route out. -->
+          <MenuItem Header="User _guide" Click="OnUserGuide" InputGestureText="F1"
+                    ToolTip="How to use every part of NetControl: commissioning a panel, the tabs, the menus and troubleshooting." />
+          <Separator />
           <!-- The startup check is silent unless there is a newer build. This one always answers,
                including "could not reach it", because somebody pressing it is waiting to be told. -->
           <MenuItem Header="Check for _updates" Click="OnCheckForUpdates"

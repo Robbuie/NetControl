@@ -4,6 +4,14 @@ Newest first. The release workflow copies a version's section onto its GitHub re
 write it for the person deciding whether to install the update. The heading has to start
 `## <version>` for that to find it.
 
+## Unreleased
+
+- **A user guide, in the Help menu.** Help > User guide, or F1 anywhere in the main window, opens
+  the full guide: a quick start for commissioning a panel, every tab and menu, the device quirks,
+  TFTP backup troubleshooting, settings and a troubleshooting list. It has a contents list and a
+  search box, follows the current theme, and works with no network - it is the repository's README,
+  built into the exe.
+
 ## 0.9.1 - fixes NetControl not opening after install
 
 - **0.9.0 did not start on a machine that had not built it.** Opening it did nothing: no window, no

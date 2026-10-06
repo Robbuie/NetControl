@@ -8,6 +8,7 @@ using Microsoft.Win32;
 using NetControl.App.Appearance;
 using NetControl.App.Composition;
 using NetControl.App.Diagnostics;
+using NetControl.App.Help;
 using NetControl.App.ViewModels;
 
 namespace NetControl.App.Views;
@@ -28,6 +29,9 @@ public partial class MainWindow : Window
     /// <summary>Guards the Help menu's update check against a second press while one is in flight.</summary>
     private bool _checkingForUpdates;
 
+    /// <summary>The user guide, while it is open, so Help and F1 bring it forward rather than open a second.</summary>
+    private HelpWindow? _userGuide;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -35,6 +39,13 @@ public partial class MainWindow : Window
         // The menu goes in the title bar, beside the title - see the comment on TitleMenu in the XAML.
         Chrome.SetTitleContent(this, Resources["TitleMenu"]);
         DataContextChanged += OnDataContextChanged;
+
+        // F1 is ApplicationCommands.Help's own gesture, so binding the command is all F1 needs.
+        CommandBindings.Add(new CommandBinding(ApplicationCommands.Help, OnHelpCommand));
+
+        // The guide is not owned, so that it can sit beside this window rather than always on top
+        // of it - which means it has to be closed here, or it would outlive the application.
+        Closed += (_, _) => _userGuide?.Close();
     }
 
     private MainViewModel? ViewModel => DataContext as MainViewModel;
@@ -634,6 +645,30 @@ public partial class MainWindow : Window
         }
 
         Shell.Open(this, AppPaths.Logs);
+    }
+
+    private void OnUserGuide(object sender, RoutedEventArgs e) => ShowUserGuide();
+
+    private void OnHelpCommand(object sender, ExecutedRoutedEventArgs e) => ShowUserGuide();
+
+    /// <summary>Opens the user guide, or brings it forward if it is already open.</summary>
+    private void ShowUserGuide()
+    {
+        if (_userGuide is { } open)
+        {
+            if (open.WindowState == WindowState.Minimized)
+            {
+                open.WindowState = WindowState.Normal;
+            }
+
+            open.Activate();
+            return;
+        }
+
+        var guide = new HelpWindow(HelpDocument.LoadEmbedded());
+        guide.Closed += (_, _) => _userGuide = null;
+        _userGuide = guide;
+        guide.Show();
     }
 
     /// <summary>

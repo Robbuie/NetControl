@@ -15,6 +15,7 @@ dotnet publish src/NetControl.App -c Release -r win-x64 --self-contained -p:Publ
 ```
 Composition/   the object graph, and the one abstraction over the WPF dispatcher
 Diagnostics/   readiness grading, and the port + firewall probe run off the UI thread
+Help/          the user guide: the repo README, embedded, read into blocks for HelpWindow
 Serving/       the listener's lifetime, and "is this MAC in the plan?"
 ViewModels/    all the logic. No WPF types - see below
 Views/         XAML, two value converters, the file dialogs
