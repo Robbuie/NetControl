@@ -76,9 +76,13 @@ public sealed partial class AdapterOption : ObservableObject
                 return "no IPv4 address";
             }
 
-            return nic.PrefixLength is { } prefix
+            string first = nic.PrefixLength is { } prefix
                 ? string.Create(CultureInfo.InvariantCulture, $"{address}/{prefix}")
                 : address.ToString();
+
+            // A second address is how one laptop reaches two subnets on one panel switch, and it is
+            // invisible in Windows unless somebody opens Advanced TCP/IP settings - so it is shown.
+            return nic.ExtraAddresses.Count == 0 ? first : $"{first}, {nic.ExtraAddresses}";
         }
     }
 

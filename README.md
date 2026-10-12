@@ -318,10 +318,25 @@ requests, which shows devices **asking** for one.
 The two are joined by address: an EtherNet/IP device is one row with its product name and a ping
 time; anything else has a blank Product and its vendor from the MAC. The list is in address order.
 
+**More than one subnet.** There are two ways, depending on how the other subnet is connected.
+
+- **On the same cable** (two subnets sharing one panel switch): give the laptop's adapter a second
+  address on the other subnet - Windows network settings > the adapter > IPv4 > Advanced > add an IP
+  address. NetControl shows both addresses in the interface bar, the sweep caption lists both
+  subnets, and Scan identifies and sweeps each one **from its own address**, with everything a
+  normal scan gives: MACs, vendors, devices that ignore ping, and Add to plan with the right mask.
+- **Behind a router** (another VLAN or line, reached through the plant's layer-3 switch): type it in
+  **Routed ranges** under the Scan button - `10.20.5.0/24, 10.20.6.10-50, 10.20.7.4`. Scan pings
+  each range, then asks each address that answered to identify itself, one at a time. Two limits
+  come with the router and the note under the box says so: there are **no MAC addresses** (so those
+  devices cannot be added to the plan from here), and devices that ignore ping are not seen. A range
+  may hold up to 1,024 addresses and a scan up to 4,096 in all; one mistyped range stops the whole
+  scan before anything is sent. The ranges are saved with the project.
+
 The sweep is gentle: at most about fifty pings a second, no TCP at all, and only the adapter's own
 subnet. It refuses a subnet wider than a /22 (1,022 addresses) - a mask that wide is usually the
 office network rather than the panel - and Scan still does the EtherNet/IP half. Each half writes its
-own row to the event log.
+own row to the event log - one per subnet, and one per routed range.
 
 - **The plan and the segment disagree** appears when the scan contradicts the plan: a planned
   address that something else is already sitting on, two devices answering on one planned address,

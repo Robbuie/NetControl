@@ -64,6 +64,32 @@ public class IdentityScannerTests
     /// A device probed twice - which happens for real the moment a unicast sweep covers an address
     /// that also answered the broadcast - is one device, not two.
     /// </summary>
+    /// <summary>
+    /// The routed-range probe: one unicast datagram per address and no broadcast, even from a
+    /// scanner whose options would broadcast on an ordinary scan. Counted by what was sent.
+    /// </summary>
+    [Fact]
+    public async Task ProbingSendsOnlyToTheAddressesGiven()
+    {
+        await using SimulatedAdapter adapter = await SimulatedAdapter.StartAsync();
+
+        var scanner = new IdentityScanner(new ScanOptions
+        {
+            Port = adapter.Port,
+            Broadcast = true,
+            Window = TimeSpan.FromSeconds(1),
+            UnicastPace = TimeSpan.Zero,
+        });
+
+        ScanReport report = await scanner.ProbeAsync(Loopback(), [IPAddress.Loopback]);
+
+        Assert.Equal(1, report.ProbesSent);
+        Assert.Equal("SIM-ENBT/A Simulated Adapter", Assert.Single(report.Replies).ProductName);
+
+        ScanReport nothing = await scanner.ProbeAsync(Loopback(), []);
+        Assert.Equal(0, nothing.ProbesSent);
+    }
+
     [Fact]
     public async Task CollapsesADeviceThatAnswersMoreThanOnce()
     {

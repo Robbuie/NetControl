@@ -4,6 +4,15 @@ Newest first. The release workflow copies a version's section onto its GitHub re
 write it for the person deciding whether to install the update. The heading has to start
 `## <version>` for that to find it.
 
+## 0.11.0 - scan more than one subnet
+
+- **Scan more than one subnet.** An adapter with a second IP address (two subnets on one panel
+  switch) is now scanned on both: each subnet is identified and swept from its own address, and the
+  interface bar shows every address the adapter has. For subnets behind a router, type them in the
+  new **Routed ranges** box (`10.20.5.0/24, 10.20.6.10-50`): Scan pings them and asks each address
+  that answers to identify itself. Routed devices have no MAC address - the router hides it - and
+  devices that ignore ping cannot be seen there; the box says so. Ranges are saved with the project.
+
 ## 0.10.0 - Scan finds everything on the network, and a tidier plan toolbar
 
 - **Scan now finds every device on the subnet, not only EtherNet/IP ones.** A new tick box beside

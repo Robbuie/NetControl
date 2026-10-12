@@ -10,12 +10,19 @@ namespace NetControl.Core.Discovery;
 /// </summary>
 public sealed record SubnetSweepResult(
     NicInfo Nic,
-    Ipv4Subnet Subnet,
+    string Scope,
     IReadOnlyList<SweptHost> Hosts,
     int AddressesPinged,
     bool ArpChecked,
     TimeSpan Duration)
 {
+    /// <summary>
+    /// True when the range is reached through a router: no MAC addresses, and devices that ignore
+    /// ping cannot be seen. Said in the summary, because a short list from a routed sweep means
+    /// something different from a short list on the laptop's own cable.
+    /// </summary>
+    public bool IsRouted { get; init; }
+
     public int AnsweredPing => Hosts.Count(h => h.AnsweredPing);
 
     /// <summary>In the ARP cache and silent to ping: present, and ignoring ICMP.</summary>
@@ -34,7 +41,7 @@ public sealed record SubnetSweepResult(
         {
             var text = new StringBuilder();
             text.Append(CultureInfo.InvariantCulture,
-                $"Swept {AddressesPinged} address(es) on {Subnet} from [{Nic.Index}] {Nic.Name} in "
+                $"Swept {AddressesPinged} address(es) on {Scope}{(IsRouted ? " (routed)" : string.Empty)} from [{Nic.Index}] {Nic.Name} in "
                 + $"{Duration.TotalSeconds:0.#} s: {Hosts.Count} found");
 
             if (Hosts.Count > 0)
@@ -51,7 +58,14 @@ public sealed record SubnetSweepResult(
 
             text.Append('.');
 
-            if (Hosts.Count == 0)
+            if (IsRouted)
+            {
+                text.Append(Hosts.Count == 0
+                    ? " Nothing answered. Check this PC has a route to that range (route print), and that a firewall "
+                        + "between here and there lets ping through."
+                    : " Behind a router, so no MAC addresses, and devices that ignore ping are not seen.");
+            }
+            else if (Hosts.Count == 0)
             {
                 text.Append(" Nothing answered at all - check this adapter is plugged into the segment you meant "
                     + "and has an address on it.");

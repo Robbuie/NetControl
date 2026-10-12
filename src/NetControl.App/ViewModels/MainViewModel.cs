@@ -828,18 +828,22 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Asks every EtherNet/IP device on the selected adapter to identify itself and then, when the
-    /// box is ticked, sweeps the adapter's whole subnet for everything else.
+    /// Finds what is on the network, in up to three passes, all from the selected adapter:
     ///
-    /// <para><b>This transmits</b>, which is why it is a button and never a timer, and why each half
-    /// writes an <see cref="EventCategory.Scan"/> row whether or not it finds anything: it put
-    /// packets on what might be a plant network, so it belongs in the record. The identity half sends
-    /// ListIdentity; the sweep sends ICMP echo. No connection is opened to any device and nothing is
-    /// written to one.</para>
+    /// <list type="number">
+    /// <item>For <b>each address the adapter holds</b>, an EtherNet/IP identity broadcast sourced from
+    /// that address - a device only answers to its own subnet - and, when the box is ticked, a sweep
+    /// of that address's subnet. A laptop given a second address to reach a second subnet on the same
+    /// panel switch gets both subnets, each scanned as completely as the first.</item>
+    /// <item>For <b>each routed range</b> typed beside the button, a ping sweep of that range and then
+    /// a unicast identity request to each address that answered - a broadcast stops at the router,
+    /// and so does ARP, so those rows carry no MAC.</item>
+    /// </list>
     ///
-    /// <para>The identity scan goes first because it is two seconds and names what it finds, and the
-    /// sweep then joins onto those rows by address - so a Rockwell adapter is one row with a product
-    /// name and a ping time, not two rows that have to be matched up by eye.</para>
+    /// <para><b>This transmits</b>, which is why it is a button and never a timer, and why every pass
+    /// writes its own <see cref="EventCategory.Scan"/> row whether or not it found anything. It sends
+    /// ListIdentity and ICMP echo; no connection is opened to any device and nothing is written to
+    /// one.</para>
     /// </summary>
     [RelayCommand(CanExecute = nameof(CanScan))]
     private async Task ScanAsync(CancellationToken cancellationToken)
@@ -852,40 +856,122 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
+        // The routed ranges are checked before anything is sent: one bad range refuses the whole
+        // scan with nothing on the wire, the same rule a bad address in a ping of the plan follows.
+        if (Scan.RoutedRangesProblem is { } rangeProblem)
+        {
+            SetError("The routed ranges could not be read, so nothing was sent.", rangeProblem);
+            Scan.Status = "Nothing was sent: " + rangeProblem;
+            return;
+        }
+
+        IReadOnlyList<SweepRange> routed = _sweep is null ? [] : Scan.ParsedRoutedRanges;
+        SaveRoutedRanges();
+
         bool sweep = _sweep is not null && Scan.SweepSubnet && Scan.CanSweep;
+        IReadOnlyList<NicInfo> parts = [.. nic.PerAddress().Where(n => n.CanServe)];
 
         ClearError();
         SetScanning(true);
-        Scan.Status = $"Scanning from [{nic.Index}] {nic.Name}...";
+        Scan.Begin($"Scanning from [{nic.Index}] {nic.Name}...");
         Log.AddNotice(
-            $"Scan started on [{nic.Index}] {nic.Name}.",
-            (_discovery is null ? string.Empty : "One ListIdentity broadcast. ")
+            $"Scan started on [{nic.Index}] {nic.Name}"
+                + (parts.Count > 1 ? $", from each of its {parts.Count} addresses." : "."),
+            (_discovery is null ? string.Empty : "One ListIdentity broadcast per address. ")
                 + (sweep ? "One echo request to each address on the subnet. " : string.Empty)
+                + (routed.Count > 0 ? $"{routed.Count} routed range(s): echo requests, then ListIdentity to whatever answered. " : string.Empty)
                 + "Nothing is written to any device.");
+
+        var summaries = new List<string>();
+        var identified = new List<DiscoveryResult>();
 
         try
         {
-            string? identitySummary = null;
-
-            if (_discovery is not null)
+            foreach (NicInfo part in parts)
             {
-                identitySummary = await IdentifyAsync(nic, cancellationToken).ConfigureAwait(true);
-
-                if (identitySummary is null)
+                if (_discovery is not null)
                 {
-                    return;
+                    DiscoveryResult? result = await IdentifyAsync(part, cancellationToken).ConfigureAwait(true);
+
+                    if (result is null)
+                    {
+                        return;
+                    }
+
+                    identified.Add(result);
+                    summaries.Add(result.Summary);
+                    Scan.Merge(result);
                 }
+
+                if (sweep && _sweep!.TryPlan(part, out _, out _, out _))
+                {
+                    SubnetSweepResult? swept = await SweepAsync(
+                        () => _sweep.SweepAsync(part, cancellationToken), Lead(summaries)).ConfigureAwait(true);
+
+                    if (swept is not null)
+                    {
+                        summaries.Add(swept.Summary);
+                    }
+                }
+
+                Scan.Status = Lead(summaries).TrimEnd();
+            }
+
+            foreach (SweepRange range in routed)
+            {
+                // A typed range that sits on one of this adapter's own subnets has just been swept
+                // in full, ARP and all; sweeping it again would only send the same pings twice.
+                if (sweep && parts.Any(p => Ipv4Subnet.TryCreate(p.IPv4, p.Mask, out Ipv4Subnet s) && range.IsWithin(s)))
+                {
+                    continue;
+                }
+
+                SubnetSweepResult? swept = await SweepAsync(
+                    () => _sweep!.SweepRangeAsync(nic, range, cancellationToken), Lead(summaries)).ConfigureAwait(true);
+
+                if (swept is null)
+                {
+                    continue;
+                }
+
+                summaries.Add(swept.Summary);
+
+                // What answered ping gets asked what it is, by name. A broadcast would stop at the
+                // router; one datagram to each address that is known to be there does not.
+                List<IPAddress> answered = [.. swept.Hosts.Where(h => h.AnsweredPing).Select(h => h.Address)];
+
+                if (_discovery is not null && answered.Count > 0)
+                {
+                    DiscoveryResult? result = await IdentifyRoutedAsync(nic, answered, cancellationToken).ConfigureAwait(true);
+
+                    if (result is not null)
+                    {
+                        identified.Add(result);
+                        summaries.Add(result.Summary);
+                        Scan.Merge(result);
+                    }
+                }
+
+                Scan.Status = Lead(summaries).TrimEnd();
+            }
+
+            // What the scan has to say about the plan, over everything that identified itself. This
+            // is the sentence neither list can produce alone, and the reason the scan was worth
+            // building: "the address you planned for the conveyor drive is one the HMI is already
+            // sitting on".
+            if (identified.Count > 0)
+            {
+                DiscoveryResult all = Combine(identified);
+                _lastScan = all;
+                CompareAndReport(all);
             }
             else
             {
                 _lastScan = null;
-                Scan.Clear();
             }
 
-            if (sweep)
-            {
-                await SweepAsync(nic, identitySummary, cancellationToken).ConfigureAwait(true);
-            }
+            Scan.ApplyPlan(Plan.IsPlanned);
+            Scan.Status = Lead(summaries).TrimEnd();
         }
         catch (OperationCanceledException)
         {
@@ -899,27 +985,30 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         }
     }
 
+    private static string Lead(List<string> summaries) =>
+        summaries.Count == 0 ? string.Empty : string.Join(" ", summaries) + " ";
+
+    /// <summary>Several identity passes as one result, for the comparison against the plan.</summary>
+    private static DiscoveryResult Combine(List<DiscoveryResult> results) =>
+        results.Count == 1 ? results[0] : new DiscoveryResult(results[0].Report, [.. results.SelectMany(r => r.Devices)]);
+
     /// <summary>
-    /// The EtherNet/IP half of a scan. Returns its one-line summary, or null when it could not run -
-    /// in which case the reason is already on screen and in the log.
+    /// The EtherNet/IP half of a scan from one of the adapter's addresses. Returns the result, or
+    /// null when it could not run - in which case the reason is already on screen and in the log.
     /// </summary>
-    private async Task<string?> IdentifyAsync(NicInfo nic, CancellationToken cancellationToken)
+    private async Task<DiscoveryResult?> IdentifyAsync(NicInfo nic, CancellationToken cancellationToken)
     {
         try
         {
             DiscoveryResult result =
                 await _discovery!.ScanAsync(nic, DirectlyAsked(), cancellationToken).ConfigureAwait(true);
 
-            _lastScan = result;
-
-            Scan.Apply(result);
-            Scan.ApplyPlan(Plan.IsPlanned);
             RecordScan(result);
             Log.AddNotice(result.Summary);
 
             // What changed since the last scan of this subnet, and then this scan into the history
             // for the next one to be compared with. After the scan's own row, so the record reads
-            // in the order it happened.
+            // in the order it happened. Per address, because the history is kept per subnet.
             CompareWithLastScan(result);
 
             foreach (IPAddress contested in result.ContestedAddresses)
@@ -930,29 +1019,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                         + "Unplug one and scan again to find out which is which.");
             }
 
-            // What the scan has to say about the plan. This is the sentence neither list can
-            // produce alone, and the reason the scan was worth building: "the address you planned
-            // for the conveyor drive is one the HMI is already sitting on".
-            PlanConformanceReport conformance = CompareAgainstPlan(result);
-            Scan.ApplyConformance(conformance);
-            RecordConformance(conformance);
-
-            if (conformance.PlannedWithAddress > 0)
-            {
-                Log.AddNotice(conformance.Summary);
-            }
-
-            foreach (PlanFinding finding in conformance.Findings)
-            {
-                // Contested addresses are already above, worded for the segment rather than for
-                // the plan. Saying it twice in the same log would train people to skim it.
-                if (finding.Severity != EventSeverity.Info && finding.Kind != PlanFindingKind.ContestedAddress)
-                {
-                    Log.AddNotice(finding.Message);
-                }
-            }
-
-            return result.Summary;
+            return result;
         }
         catch (EnipException ex)
         {
@@ -964,13 +1031,57 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// The ping-and-ARP half of a scan, joined onto whatever the identity half found. A sweep the
-    /// subnet will not allow - too wide, no mask - is reported and leaves the identity results alone.
+    /// Asks each routed address that answered ping what it is. Not kept in the scan history: that is
+    /// compared per subnet of this adapter, and a routed range is not one. A failure here is reported
+    /// and the scan carries on with the rest - the sweep it follows has already found the hosts.
     /// </summary>
-    private async Task SweepAsync(NicInfo nic, string? identitySummary, CancellationToken cancellationToken)
+    private async Task<DiscoveryResult?> IdentifyRoutedAsync(
+        NicInfo nic, List<IPAddress> targets, CancellationToken cancellationToken)
     {
-        string lead = identitySummary is null ? string.Empty : identitySummary + " ";
+        try
+        {
+            DiscoveryResult result = await _discovery!.IdentifyAsync(nic, targets, cancellationToken).ConfigureAwait(true);
 
+            RecordScan(result);
+            Log.AddNotice(result.Summary);
+            return result;
+        }
+        catch (EnipException ex)
+        {
+            Log.AddNotice(ex.Message, ex.Remediation);
+            return null;
+        }
+    }
+
+    /// <summary>The plan comparison over everything the scan identified: on screen, in the log, in the record.</summary>
+    private void CompareAndReport(DiscoveryResult result)
+    {
+        PlanConformanceReport conformance = CompareAgainstPlan(result);
+        Scan.ApplyConformance(conformance);
+        RecordConformance(conformance);
+
+        if (conformance.PlannedWithAddress > 0)
+        {
+            Log.AddNotice(conformance.Summary);
+        }
+
+        foreach (PlanFinding finding in conformance.Findings)
+        {
+            // Contested addresses are already in the log, worded for the segment rather than for the
+            // plan. Saying it twice in the same log would train people to skim it.
+            if (finding.Severity != EventSeverity.Info && finding.Kind != PlanFindingKind.ContestedAddress)
+            {
+                Log.AddNotice(finding.Message);
+            }
+        }
+    }
+
+    /// <summary>
+    /// One ping sweep - a subnet of this adapter's or a routed range - joined onto what is on screen.
+    /// A sweep that is refused is reported and the scan carries on: the other passes still ran.
+    /// </summary>
+    private async Task<SubnetSweepResult?> SweepAsync(Func<Task<SubnetSweepResult>> run, string lead)
+    {
         // Progress arrives from whichever thread a ping finished on, and may still be queued for the
         // UI thread after the result is on screen. The flag keeps a late count from overwriting it.
         bool finished = false;
@@ -981,7 +1092,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             {
                 Scan.Status = string.Create(
                     CultureInfo.InvariantCulture,
-                    $"{lead}Sweeping the subnet: {e.Completed} of {e.Total} addresses...");
+                    $"{lead}Sweeping: {e.Completed} of {e.Total} addresses...");
             }
         });
 
@@ -989,23 +1100,20 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         try
         {
-            SubnetSweepResult result = await _sweep.SweepAsync(nic, cancellationToken).ConfigureAwait(true);
+            SubnetSweepResult result = await run().ConfigureAwait(true);
 
             finished = true;
 
             Scan.ApplySweep(result);
-            Scan.ApplyPlan(Plan.IsPlanned);
-            RecompareScan();
-            Scan.Status = lead + result.Summary;
-
             RecordSweep(result);
             Log.AddNotice(result.Summary);
+            return result;
         }
         catch (ReachabilityException ex)
         {
             finished = true;
-            Scan.Status = $"{lead}The subnet was not swept: {ex.Message}";
-            Log.AddNotice(ex.Message, ex.Remediation);
+            Log.AddNotice($"Not swept: {ex.Message}", ex.Remediation);
+            return null;
         }
         finally
         {
@@ -1020,11 +1128,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         && InterfaceBar.SelectedAdapter?.Nic is { CanServe: true };
 
     /// <summary>
-    /// Re-reads what a sweep from the selected adapter would cover, for the checkbox's caption. Sends
-    /// nothing; called whenever the adapter changes.
+    /// Re-reads what a sweep from the selected adapter would cover, for the checkbox's caption: every
+    /// subnet the adapter has an address on. Sends nothing; called whenever the adapter changes.
     /// </summary>
     private void UpdateSweepPlan()
     {
+        Scan.CanRoute = _sweep is not null;
+
         if (_sweep is null)
         {
             Scan.CanSweep = false;
@@ -1033,19 +1143,48 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        if (_sweep.TryPlan(InterfaceBar.SelectedAdapter?.Nic, out Ipv4Subnet subnet, out int addresses, out string? problem))
+        var subnets = new List<Ipv4Subnet>();
+        int total = 0;
+        string? problem = null;
+
+        if (InterfaceBar.SelectedAdapter?.Nic is { } nic)
         {
-            int seconds = (int)Math.Ceiling(_sweep.Options.Estimate(addresses).TotalSeconds);
+            foreach (NicInfo part in nic.PerAddress())
+            {
+                if (_sweep.TryPlan(part, out Ipv4Subnet subnet, out int addresses, out string? why))
+                {
+                    subnets.Add(subnet);
+                    total += addresses;
+                }
+                else
+                {
+                    problem ??= why;
+                }
+            }
+        }
+        else
+        {
+            _sweep.TryPlan(null, out _, out _, out problem);
+        }
+
+        if (subnets.Count > 0)
+        {
+            int seconds = (int)Math.Ceiling(_sweep.Options.Estimate(total).TotalSeconds);
 
             Scan.CanSweep = true;
             Scan.SweepCaption = string.Create(
                 CultureInfo.InvariantCulture,
-                $"Also ping every address on {subnet} ({addresses:N0} addresses, about {seconds} s)");
+                $"Also ping every address on {string.Join(" and ", subnets)} ({total:N0} addresses, about {seconds} s)");
             Scan.SweepTooltip =
                 "Finds everything with an IP address - PCs, switches, HMIs, cameras and devices that do not speak "
                 + "EtherNet/IP. One echo request to each address, a few at a time, then a read of this PC's ARP "
                 + "cache, which also catches devices set to ignore ping. Nothing is connected to and nothing is "
-                + "written.";
+                + "written."
+                + (subnets.Count > 1
+                    ? " This adapter has more than one address, so each subnet is scanned from its own address."
+                    : " To scan a second subnet on the same cable, give this adapter a second address on it "
+                        + "(Advanced TCP/IP settings) - it will be listed here.")
+                + (problem is null ? string.Empty : " Not swept: " + problem);
         }
         else
         {
@@ -1054,6 +1193,37 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             Scan.SweepTooltip = problem;
         }
     }
+
+    /// <summary>
+    /// Keeps the routed ranges with the project, because they are the site's - another plant has
+    /// other VLANs. Written when a scan uses them rather than on every keystroke, and the change is
+    /// a row in the record like every other setting that travels with the file.
+    /// </summary>
+    private void SaveRoutedRanges()
+    {
+        string text = string.Join(", ", Scan.ParsedRoutedRanges.Select(r => r.Text));
+
+        try
+        {
+            if ((_project.Settings.Get(RoutedRangesSetting) ?? string.Empty) == text)
+            {
+                return;
+            }
+
+            _project.Settings.Set(RoutedRangesSetting, text);
+            _project.Events.Append(
+                EventSeverity.Info,
+                EventCategory.App,
+                text.Length == 0 ? "Routed scan ranges cleared." : $"Routed scan ranges set to {text}.");
+        }
+        catch (PersistenceException ex)
+        {
+            RecordingIsIncomplete = true;
+            Log.AddNotice($"Could not save the routed ranges with the project: {ex.Message}", ex.Remediation);
+        }
+    }
+
+    private const string RoutedRangesSetting = "scan.routedRanges";
 
     /// <summary>
     /// One row for the sweep, whether or not it found anything: it put an echo request on every
@@ -1069,7 +1239,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                 result.Summary,
                 target: $"[{result.Nic.Index}] {result.Nic.Name}",
                 detail: new EventDetail()
-                    .Add("subnet", result.Subnet.ToString())
+                    .Add("scope", result.Scope)
+                    .Add("routed", result.IsRouted)
                     .Add("pinged", result.AddressesPinged)
                     .Add("found", result.Hosts.Count)
                     .Add("answeredPing", result.AnsweredPing)
@@ -1528,14 +1699,22 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// </summary>
     private string? MaskForScannedAddress(IPAddress address)
     {
-        if (InterfaceBar.SelectedAdapter?.Nic is not { Mask: { } mask } nic)
+        if (InterfaceBar.SelectedAdapter?.Nic is not { } nic)
         {
             return null;
         }
 
-        return Ipv4Subnet.TryCreate(nic.IPv4, mask, out Ipv4Subnet subnet) && subnet.Contains(address)
-            ? mask.ToString()
-            : null;
+        // Any of the adapter's addresses will do: a second address on a second subnet is exactly as
+        // much evidence about that subnet's mask as the first is about its own.
+        foreach (NicInfo part in nic.PerAddress())
+        {
+            if (Ipv4Subnet.TryCreate(part.IPv4, part.Mask, out Ipv4Subnet subnet) && subnet.Contains(address))
+            {
+                return part.Mask!.ToString();
+            }
+        }
+
+        return null;
     }
 
     private void OnPlanChanged(object? sender, EventArgs e)
@@ -1589,6 +1768,18 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         ApplyProject(opened);
     }
 
+    private static string ReadRoutedRanges(ProjectStore project)
+    {
+        try
+        {
+            return project.Settings.Get(RoutedRangesSetting) ?? string.Empty;
+        }
+        catch (PersistenceException)
+        {
+            return string.Empty;
+        }
+    }
+
     private void ApplyProject(ProjectStore project)
     {
         ProjectName = project.Project.Name;
@@ -1599,6 +1790,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 
         Plan.Load(project);
         ReloadPlan();
+        Scan.RoutedRanges = ReadRoutedRanges(project);
     }
 
     /// <summary>

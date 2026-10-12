@@ -30,4 +30,11 @@ public enum MacSource
 
     /// <summary>The ARP table could not be read at all. Not the same as it being empty.</summary>
     NotChecked,
+
+    /// <summary>
+    /// The device is on a subnet this PC reaches through a router. ARP stops at the router, so the
+    /// hardware address is unknowable from here - not missing, not wrong, just out of reach. Added
+    /// last so that a number stored by an older build still means what it meant.
+    /// </summary>
+    Routed,
 }

@@ -320,6 +320,118 @@ public sealed class MainViewModelScanTests : IDisposable
     }
 
     /// <summary>
+    /// An adapter with a second address is two subnets on one cable. Each is identified from its own
+    /// address - a device answers only to its own subnet - and each is swept, and a device found on
+    /// the second gets that subnet's mask when planned.
+    /// </summary>
+    [Fact]
+    public async Task ScansEverySubnetTheAdapterHasAnAddressOn()
+    {
+        var scanner = new FakeIdentityScanner(
+            Identities.Reply("192.168.1.51"),
+            Identities.Reply("192.168.0.20", serial: 0x0BADF00D, product: "PowerFlex 525"))
+        {
+            AnswerOnlyOwnSubnet = true,
+        };
+        var pinger = new FakePinger { Delay = TimeSpan.Zero };
+        var arp = new FakeArpLookup(
+            new ArpEntry(IPAddress.Parse("192.168.1.51"), DeviceMac, 12, ArpEntryType.Dynamic),
+            new ArpEntry(IPAddress.Parse("192.168.0.20"), SilentMac, 12, ArpEntryType.Dynamic));
+
+        MainViewModel viewModel = Build(out _, scanner, arp, pinger);
+        SelectAdapter(viewModel, TwoAddresses());
+
+        Assert.Contains("192.168.1.0/24 and 192.168.0.0/24", viewModel.Scan.SweepCaption, StringComparison.Ordinal);
+        Assert.Contains("506 addresses", viewModel.Scan.SweepCaption, StringComparison.Ordinal);
+
+        await viewModel.ScanCommand.ExecuteAsync(null);
+
+        Assert.Equal(
+            ["192.168.1.10", "192.168.0.10"],
+            scanner.ScannedFromAll.Select(n => n.IPv4!.ToString()).ToArray());
+        Assert.Equal(506, pinger.Asked.Count);
+        Assert.Equal(
+            ["192.168.0.20", "192.168.1.51"],
+            viewModel.Scan.Rows.Select(r => r.AddressText).ToArray());
+
+        viewModel.PlanFromScan(viewModel.Scan.Rows[0]);
+        Assert.Equal("255.255.255.0", Assert.Single(viewModel.Plan.Rows).MaskText);
+    }
+
+    /// <summary>
+    /// A routed range: swept, then each address that answered is asked what it is by name. The row
+    /// has a product name and a ping time and no MAC, and says why it cannot be planned from here.
+    /// </summary>
+    [Fact]
+    public async Task ARoutedRangeIsSweptAndTheRepliesAreIdentifiedByName()
+    {
+        var scanner = new FakeIdentityScanner(
+            Identities.Reply("192.168.1.51"),
+            Identities.Reply("10.20.5.40", serial: 0x0BADF00D, product: "PowerFlex 525"))
+        {
+            AnswerOnlyOwnSubnet = true,
+        };
+        var pinger = new FakePinger { Delay = TimeSpan.Zero }.Answers("10.20.5.40", PingStatus.Replied);
+
+        MainViewModel viewModel = Build(out _, scanner, pinger: pinger);
+        SelectAdapter(viewModel);
+        viewModel.Scan.SweepSubnet = false;
+        viewModel.Scan.RoutedRanges = "10.20.5.32-47";
+
+        Assert.Null(viewModel.Scan.RoutedRangesProblem);
+        Assert.Contains("16 addresses", viewModel.Scan.RoutedRangesNote ?? string.Empty, StringComparison.Ordinal);
+
+        await viewModel.ScanCommand.ExecuteAsync(null);
+
+        Assert.Equal(16, pinger.Asked.Count);
+        Assert.Equal([IPAddress.Parse("10.20.5.40")], scanner.Probed);
+
+        ScanResultViewModel routed = Assert.Single(viewModel.Scan.Rows, r => r.AddressText == "10.20.5.40");
+        Assert.Equal("PowerFlex 525", routed.ProductText);
+        Assert.Equal("2 ms", routed.ResponseText);
+        Assert.Equal(string.Empty, routed.MacText);
+        Assert.False(routed.CanBePlanned);
+        Assert.Contains("behind a router", routed.Note, StringComparison.Ordinal);
+
+        IReadOnlyList<EventRecord> events = _project.Events.All();
+        Assert.Contains(events, e => e.Message.Contains("10.20.5.32-10.20.5.47 (routed)", StringComparison.Ordinal));
+        Assert.Contains(events, e => e.Category == EventCategory.App
+            && e.Message == "Routed scan ranges set to 10.20.5.32-10.20.5.47.");
+        Assert.Equal("10.20.5.32-10.20.5.47", _project.Settings.Get("scan.routedRanges"));
+    }
+
+    /// <summary>One bad range refuses the whole scan with nothing on the wire, and says which piece.</summary>
+    [Fact]
+    public async Task ABadRangeRefusesTheScanWithNothingSent()
+    {
+        var pinger = new FakePinger { Delay = TimeSpan.Zero };
+
+        MainViewModel viewModel = Build(out FakeIdentityScanner scanner, pinger: pinger);
+        SelectAdapter(viewModel);
+        viewModel.Scan.RoutedRanges = "10.20.5.0/24, 10.20.6";
+
+        Assert.Contains("'10.20.6'", viewModel.Scan.RoutedRangesProblem ?? string.Empty, StringComparison.Ordinal);
+
+        await viewModel.ScanCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, scanner.Scans);
+        Assert.Empty(pinger.Asked);
+        Assert.Empty(_project.Events.All());
+        Assert.NotNull(viewModel.ErrorMessage);
+    }
+
+    /// <summary>The ranges belong to the site, so they come back with the project.</summary>
+    [Fact]
+    public void RoutedRangesComeBackWithTheProject()
+    {
+        _project.Settings.Set("scan.routedRanges", "10.20.5.0/24");
+
+        MainViewModel viewModel = Build(out _, pinger: new FakePinger());
+
+        Assert.Equal("10.20.5.0/24", viewModel.Scan.RoutedRanges);
+    }
+
+    /// <summary>
     /// A scan transmits, so it needs an adapter that can source one - chosen deliberately, exactly
     /// like serve mode. There is no "scan on whatever adapter Windows would have picked".
     /// </summary>
@@ -365,10 +477,17 @@ public sealed class MainViewModelScanTests : IDisposable
         _project.Dispose();
     }
 
-    private static void SelectAdapter(MainViewModel viewModel)
+    private static void SelectAdapter(MainViewModel viewModel, NicInfo? nic = null)
     {
-        viewModel.InterfaceBar.ApplyInventory([Nics.Healthy()]);
+        viewModel.InterfaceBar.ApplyInventory([nic ?? Nics.Healthy()]);
         viewModel.InterfaceBar.SelectedAdapter = viewModel.InterfaceBar.Adapters[0];
+    }
+
+    /// <summary>The ordinary adapter, given a second address on 192.168.0.0/24.</summary>
+    private static NicInfo TwoAddresses()
+    {
+        Ipv4Subnet.TryCreate(IPAddress.Parse("192.168.0.10"), IPAddress.Parse("255.255.255.0"), out Ipv4Subnet second);
+        return Nics.Healthy() with { ExtraAddresses = new NicAddressList([second]) };
     }
 
     private MainViewModel Build(

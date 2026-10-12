@@ -41,6 +41,52 @@ public sealed record NicInfo(
     public int? PrefixLength => Mask is null ? null : MaskToPrefixLength(Mask);
 
     /// <summary>
+    /// The adapter's other IPv4 addresses, each with its mask - the second address somebody adds in
+    /// Advanced TCP/IP settings so one laptop can talk to two subnets sharing a panel switch.
+    /// <see cref="IPv4"/> and <see cref="Mask"/> stay the first address, which is what everything
+    /// that serves, binds or commissions has always used; only discovery looks at these.
+    /// </summary>
+    public NicAddressList ExtraAddresses { get; init; } = NicAddressList.Empty;
+
+    /// <summary>
+    /// This adapter once per usable address: itself, then a copy carrying each extra address as its
+    /// <see cref="IPv4"/> and <see cref="Mask"/>. Same index, same name - it is the same port - so a
+    /// scan run from a copy goes out of the same cable, sourced from the address that belongs to the
+    /// subnet it is asking about. A device only answers to its own subnet, and a reply sent to an
+    /// address on another one goes to its gateway rather than back to this laptop.
+    ///
+    /// <para>An APIPA extra and a second address on a subnet already listed are left out: the first
+    /// is not a subnet anybody commissions on, and the second would sweep the same addresses twice.</para>
+    /// </summary>
+    public IReadOnlyList<NicInfo> PerAddress()
+    {
+        var all = new List<NicInfo> { this with { ExtraAddresses = NicAddressList.Empty } };
+        var seen = new HashSet<IPAddress>();
+
+        if (Ipv4Subnet.TryCreate(IPv4, Mask, out Ipv4Subnet first))
+        {
+            seen.Add(first.Network);
+        }
+
+        foreach (Ipv4Subnet extra in ExtraAddresses)
+        {
+            if (extra.Address.GetAddressBytes() is [169, 254, ..] || !seen.Add(extra.Network))
+            {
+                continue;
+            }
+
+            all.Add(this with { IPv4 = extra.Address, Mask = extra.Mask, ExtraAddresses = NicAddressList.Empty });
+        }
+
+        return all;
+    }
+
+    /// <summary>Whether <paramref name="address"/> is one of this adapter's own.</summary>
+    public bool Owns(IPAddress? address) =>
+        address is not null
+        && (address.Equals(IPv4) || ExtraAddresses.Any(a => a.Address.Equals(address)));
+
+    /// <summary>
     /// Best-effort "this is not a physical port" flag, used only to sort and dim the list in the
     /// UI. An engineering laptop routinely shows a dozen adapters of which one is real, and
     /// picking the right one by guesswork is the problem the tool exists to solve. It is a

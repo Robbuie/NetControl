@@ -25,4 +25,14 @@ public interface IIdentityScanner
         NicInfo nic,
         IReadOnlyList<IPAddress>? unicastTargets = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// One unicast ListIdentity to each address in <paramref name="targets"/> and no broadcast -
+    /// for devices behind a router, which a broadcast never reaches. Every target must be one host;
+    /// an empty list transmits nothing.
+    /// </summary>
+    Task<ScanReport> ProbeAsync(
+        NicInfo nic,
+        IReadOnlyList<IPAddress> targets,
+        CancellationToken cancellationToken = default);
 }

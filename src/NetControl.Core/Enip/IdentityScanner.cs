@@ -47,10 +47,31 @@ public sealed class IdentityScanner : IIdentityScanner
 
     public IdentityScanner(ScanOptions? options = null) => _options = options ?? new ScanOptions();
 
-    public async Task<ScanReport> ScanAsync(
+    public Task<ScanReport> ScanAsync(
         NicInfo nic,
         IReadOnlyList<IPAddress>? unicastTargets = null,
+        CancellationToken cancellationToken = default) =>
+        RunAsync(nic, unicastTargets, _options.Broadcast, cancellationToken);
+
+    /// <summary>
+    /// Asks only the addresses given, one unicast ListIdentity each, and never broadcasts - which is
+    /// how a device behind a router is identified, since a broadcast stops at the router. An empty
+    /// list sends nothing at all.
+    /// </summary>
+    public Task<ScanReport> ProbeAsync(
+        NicInfo nic,
+        IReadOnlyList<IPAddress> targets,
         CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(targets);
+        return RunAsync(nic, targets, broadcast: false, cancellationToken);
+    }
+
+    private async Task<ScanReport> RunAsync(
+        NicInfo nic,
+        IReadOnlyList<IPAddress>? unicastTargets,
+        bool broadcast,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(nic);
 
@@ -68,19 +89,19 @@ public sealed class IdentityScanner : IIdentityScanner
 
         // Nothing to send is not the same as "send a broadcast anyway". A scan the user narrowed
         // down to nothing must put nothing on the wire.
-        if (!_options.Broadcast && targets.Count == 0)
+        if (!broadcast && targets.Count == 0)
         {
             return new ScanReport(nic, [], 0, 0, 0, 0, TimeSpan.Zero);
         }
 
         var clock = Stopwatch.StartNew();
-        using Socket socket = Open(nic);
+        using Socket socket = Open(nic, broadcast);
 
         byte[] probe = BuildProbe();
         int sent = 0;
         int refused = 0;
 
-        if (_options.Broadcast)
+        if (broadcast)
         {
             sent += await ProbeAsync(socket, probe, IPAddress.Broadcast, cancellationToken).ConfigureAwait(false);
         }
@@ -225,13 +246,13 @@ public sealed class IdentityScanner : IIdentityScanner
         return frame;
     }
 
-    private Socket Open(NicInfo nic)
+    private Socket Open(NicInfo nic, bool broadcast)
     {
         var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
 
         try
         {
-            socket.EnableBroadcast = _options.Broadcast;
+            socket.EnableBroadcast = broadcast;
             socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
 
             if (_options.SendMode == ReplySendMode.UnicastInterfaceOption)

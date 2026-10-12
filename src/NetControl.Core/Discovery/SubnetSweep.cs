@@ -103,9 +103,9 @@ public sealed class SubnetSweep
         return true;
     }
 
-    /// <summary>Sweeps the subnet <paramref name="nic"/> is on.</summary>
+    /// <summary>Sweeps the subnet <paramref name="nic"/>'s address is on.</summary>
     /// <exception cref="ReachabilityException">The sweep was refused. Nothing was sent.</exception>
-    public async Task<SubnetSweepResult> SweepAsync(NicInfo nic, CancellationToken cancellationToken = default)
+    public Task<SubnetSweepResult> SweepAsync(NicInfo nic, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(nic);
 
@@ -118,8 +118,63 @@ public sealed class SubnetSweep
             };
         }
 
+        List<PingTarget> targets = [.. Hosts(subnet)
+            .Where(a => !nic.Owns(a))
+            .Select(a => new PingTarget(a, subnet.Mask))];
+
+        return RunAsync(nic, subnet.ToString(), targets, subnet.Contains, subnet.Mask, isRouted: false, cancellationToken);
+    }
+
+    /// <summary>
+    /// Sweeps a range somebody typed, which may be behind a router. Same pinging, same pace, same
+    /// one-host check on every address; what changes is what can be learned. ARP stops at a router,
+    /// so a routed host has no MAC and a routed device that ignores ping is not found at all - and
+    /// the result says it was routed so the screen and the record can say so too.
+    /// </summary>
+    /// <exception cref="ReachabilityException">The sweep was refused. Nothing was sent.</exception>
+    public Task<SubnetSweepResult> SweepRangeAsync(
+        NicInfo nic, SweepRange range, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(nic);
+        ArgumentNullException.ThrowIfNull(range);
+
+        if (!nic.CanServe)
+        {
+            throw new ReachabilityException($"[{nic.Index}] {nic.Name} cannot source a sweep: "
+                + (nic.IsUp ? "it has no usable IPv4 address." : "it is down."))
+            {
+                Remediation = "Select an adapter with an address - the one that has a route to that range.",
+            };
+        }
+
+        if (range.Count > Options.MaxAddresses)
+        {
+            throw new ReachabilityException(
+                $"{range} is {range.Count:N0} addresses, more than the {Options.MaxAddresses:N0} a sweep will cover.")
+            {
+                Remediation = "Split it into smaller ranges, or narrow it to the part of the plant you mean.",
+            };
+        }
+
+        bool onLink = nic.PerAddress().Any(n => Ipv4Subnet.TryCreate(n.IPv4, n.Mask, out Ipv4Subnet s) && range.IsWithin(s));
+
+        List<PingTarget> targets = [.. range.Addresses()
+            .Where(a => !nic.Owns(a))
+            .Select(a => new PingTarget(a, range.Mask))];
+
+        return RunAsync(nic, range.Text, targets, range.Contains, range.Mask, isRouted: !onLink, cancellationToken);
+    }
+
+    private async Task<SubnetSweepResult> RunAsync(
+        NicInfo nic,
+        string scope,
+        List<PingTarget> targets,
+        Func<IPAddress, bool> inScope,
+        IPAddress? mask,
+        bool isRouted,
+        CancellationToken cancellationToken)
+    {
         long started = Stopwatch.GetTimestamp();
-        List<PingTarget> targets = Targets(subnet, nic.IPv4!);
 
         var sweep = new PingSweep(_pinger, Options.ToPingOptions());
         sweep.Progress += (_, e) => Progress?.Invoke(this, e);
@@ -134,29 +189,24 @@ public sealed class SubnetSweep
         bool arpChecked = _arp.IsSupported;
         IReadOnlyList<ArpEntry> arp = arpChecked ? _arp.Snapshot() : [];
 
-        IReadOnlyList<SweptHost> hosts = Join(nic, subnet, pinged.Outcomes, arp, arpChecked);
+        IReadOnlyList<SweptHost> hosts = Join(nic, inScope, mask, pinged.Outcomes, arp, arpChecked);
 
-        return new SubnetSweepResult(nic, subnet, hosts, targets.Count, arpChecked, Stopwatch.GetElapsedTime(started));
+        return new SubnetSweepResult(nic, scope, hosts, targets.Count, arpChecked, Stopwatch.GetElapsedTime(started))
+        {
+            IsRouted = isRouted,
+        };
     }
 
-    /// <summary>Every host address on the subnet, in order, skipping this PC's own.</summary>
-    private static List<PingTarget> Targets(Ipv4Subnet subnet, IPAddress own)
+    /// <summary>Every host address on the subnet, in order.</summary>
+    private static IEnumerable<IPAddress> Hosts(Ipv4Subnet subnet)
     {
         uint first = ToUInt32(subnet.FirstHost);
         uint last = ToUInt32(subnet.LastHost);
-        uint self = ToUInt32(own);
-
-        var targets = new List<PingTarget>((int)(last - first + 1));
 
         for (uint bits = first; bits <= last && bits >= first; bits++)
         {
-            if (bits != self)
-            {
-                targets.Add(new PingTarget(FromUInt32(bits), subnet.Mask));
-            }
+            yield return FromUInt32(bits);
         }
-
-        return targets;
     }
 
     /// <summary>
@@ -165,7 +215,8 @@ public sealed class SubnetSweep
     /// </summary>
     internal IReadOnlyList<SweptHost> Join(
         NicInfo nic,
-        Ipv4Subnet subnet,
+        Func<IPAddress, bool> inScope,
+        IPAddress? mask,
         IReadOnlyList<PingOutcome> outcomes,
         IReadOnlyList<ArpEntry> arp,
         bool arpChecked)
@@ -190,6 +241,12 @@ public sealed class SubnetSweep
             }
         }
 
+        // The subnets this adapter is on. An address outside all of them is reached through a
+        // router, and ARP - so the MAC - stops at the router.
+        List<Ipv4Subnet> onLink = [.. nic.PerAddress()
+            .Select(n => Ipv4Subnet.TryCreate(n.IPv4, n.Mask, out Ipv4Subnet s) ? s : (Ipv4Subnet?)null)
+            .OfType<Ipv4Subnet>()];
+
         var byAddress = new Dictionary<IPAddress, SweptHost>();
 
         foreach (PingOutcome outcome in outcomes)
@@ -208,32 +265,38 @@ public sealed class SubnetSweep
                 continue;
             }
 
-            byAddress[outcome.Address] = Host(outcome.Address, outcome, entry, elsewhere, arpChecked);
+            byAddress[outcome.Address] = Host(outcome.Address, outcome, entry, elsewhere, arpChecked, onLink);
         }
 
-        // Entries for addresses on this subnet that were not in the outcomes - none, normally, since
-        // every host was pinged; but a sweep is cheap to make honest about what the cache holds.
+        // Entries in scope that were not in the outcomes - none, normally, since every address was
+        // pinged; but a sweep is cheap to make honest about what the cache holds.
         foreach ((IPAddress address, ArpEntry entry) in onThisAdapter)
         {
             if (byAddress.ContainsKey(address)
-                || address.Equals(nic.IPv4)
-                || !subnet.Contains(address)
-                || !UnicastTarget.TryCheck(address, subnet.Mask, out _))
+                || nic.Owns(address)
+                || !inScope(address)
+                || !UnicastTarget.TryCheck(address, mask, out _))
             {
                 continue;
             }
 
-            byAddress[address] = Host(address, ping: null, entry, elsewhere, arpChecked);
+            byAddress[address] = Host(address, ping: null, entry, elsewhere, arpChecked, onLink);
         }
 
         return [.. byAddress.Values.OrderBy(h => ToUInt32(h.Address))];
     }
 
     private SweptHost Host(
-        IPAddress address, PingOutcome? ping, ArpEntry? entry, HashSet<IPAddress> elsewhere, bool arpChecked)
+        IPAddress address,
+        PingOutcome? ping,
+        ArpEntry? entry,
+        HashSet<IPAddress> elsewhere,
+        bool arpChecked,
+        List<Ipv4Subnet> onLink)
     {
-        MacSource source = !arpChecked ? MacSource.NotChecked
-            : entry is not null ? MacSource.Arp
+        MacSource source = entry is not null ? MacSource.Arp
+            : !onLink.Any(s => s.Contains(address)) ? MacSource.Routed
+            : !arpChecked ? MacSource.NotChecked
             : elsewhere.Contains(address) ? MacSource.ArpOnAnotherAdapter
             : MacSource.NotInArp;
 

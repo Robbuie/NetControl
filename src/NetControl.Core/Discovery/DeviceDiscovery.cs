@@ -52,6 +52,30 @@ public sealed class DeviceDiscovery
 
         ScanReport report = await _scanner.ScanAsync(nic, unicastTargets, cancellationToken).ConfigureAwait(false);
 
+        return Resolve(nic, report);
+    }
+
+    /// <summary>
+    /// Identifies only the addresses given, one unicast ListIdentity each, with no broadcast. This
+    /// is how devices behind a router get a product name: a subnet sweep finds what answers ping,
+    /// and this asks each of those what it is. Their MACs are out of reach - ARP stops at the
+    /// router - and <see cref="MacSource.Routed"/> says so.
+    /// </summary>
+    public async Task<DiscoveryResult> IdentifyAsync(
+        NicInfo nic,
+        IReadOnlyList<IPAddress> targets,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(nic);
+        ArgumentNullException.ThrowIfNull(targets);
+
+        ScanReport report = await _scanner.ProbeAsync(nic, targets, cancellationToken).ConfigureAwait(false);
+
+        return Resolve(nic, report);
+    }
+
+    private DiscoveryResult Resolve(NicInfo nic, ScanReport report)
+    {
         if (report.Replies.Count == 0)
         {
             return new DiscoveryResult(report, []);
@@ -118,9 +142,16 @@ public sealed class DeviceDiscovery
     private static (MacAddress Mac, MacSource Source) ResolveMac(
         ListIdentityReply reply, NicInfo nic, IReadOnlyList<ArpEntry> arp)
     {
+        // A sender on none of this adapter's subnets came through a router, and ARP stops there. An
+        // entry this adapter did learn for it is still taken below - that is the cache saying the
+        // address is on the wire after all - but its absence means "routed", not "missing".
+        bool routed = Ipv4Subnet.TryCreate(nic.IPv4, nic.Mask, out _)
+            && !nic.PerAddress().Any(n => Ipv4Subnet.TryCreate(n.IPv4, n.Mask, out Ipv4Subnet s)
+                && s.Contains(reply.SenderAddress));
+
         if (arp.Count == 0)
         {
-            return (MacAddress.Empty, MacSource.NotInArp);
+            return (MacAddress.Empty, routed ? MacSource.Routed : MacSource.NotInArp);
         }
 
         ArpEntry? onThisAdapter = null;
@@ -145,6 +176,11 @@ public sealed class DeviceDiscovery
         if (onThisAdapter is not null)
         {
             return (onThisAdapter.Mac, MacSource.Arp);
+        }
+
+        if (routed)
+        {
+            return (MacAddress.Empty, MacSource.Routed);
         }
 
         // Deliberately not taken. A hardware address learned on a different adapter is very

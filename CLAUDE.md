@@ -196,10 +196,13 @@ These are hard rules, not preferences:
 - **Every state-changing operation gets logged** to the append-only event log with timestamp,
   target, what was sent, and what came back. Reads that transmit - ping, the service check, the
   CIP diagnostics read, a scan - get a row too: they are packets on somebody's network.
-- **The subnet sweep is ICMP echo and an ARP read, nothing else, on the adapter's own subnet only.**
-  `SubnetSweep` computes the range from the adapter's address and mask (never typed), refuses
-  anything wider than `SubnetSweepOptions.MaxAddresses` (a /22) before sending, and paces itself
-  through `PingSweep` - so every address still passes `UnicastTarget`. No TCP, no port scan.
+- **The subnet sweep is ICMP echo and an ARP read, nothing else.** `SubnetSweep.SweepAsync` computes
+  its range from an adapter address and mask; `SweepRangeAsync` takes a `SweepRange` a person typed,
+  parsed strictly and refused at either end if it is not one host. Both refuse anything wider than
+  `SubnetSweepOptions.MaxAddresses` (1,024) before sending and pace through `PingSweep`, so every
+  address passes `UnicastTarget`. No TCP, no port scan. A routed range gets **unicast** ListIdentity
+  (`IIdentityScanner.ProbeAsync`) only to addresses that answered ping - never a broadcast, and one
+  bad range refuses the whole scan with nothing sent.
 - **Every probe goes to one host, checked by `UnicastTarget` before the first packet.** Ping, the
   service check and the diagnostics read all refuse broadcast, multicast, 0.0.0.0, and - when the
   mask is known - the subnet's own broadcast and network address. One bad address in a ping of the
@@ -918,8 +921,21 @@ for every `Plan.`/`Scan.` binding path against the view model sources.
 - Plan toolbar: `DeviceGridViewModel.HasRows`/`HasSelection`. Per-device and whole-plan groups are
   hidden until there is a row; an empty plan shows a panel with Scan the network / Import CSV /
   Add device. Diagnose, Modbus, Quirks and Enable BOOTP/DHCP moved into a **More** menu.
-- **Never on screen:** the sweep checkbox and its caption, the Response column, the empty-plan panel
-  and the regrouped toolbar. **No sweep has been run against a real subnet**, and `IcmpPinger` plus
+- **0.11.0 - more than one subnet** (same harness: 889 of 890). `NicInfo.ExtraAddresses`
+  (`NicAddressList`, compared by value so `NicMonitor`'s change detection still works) carries every
+  IPv4 address after the first; `NicInfo.PerAddress()` yields the adapter once per subnet, same
+  index, so Scan identifies and sweeps each subnet **sourced from the address on it** - a device
+  replies to its own subnet only. `IPv4`/`Mask` stay the first address for everything that serves,
+  binds or commissions. Routed ranges: `SweepRange` (CIDR, a-b, a-octet, single), stored per project
+  in `ProjectSettings` under `scan.routedRanges`, `MacSource.Routed` - taken only when this adapter
+  has no ARP entry for an off-subnet sender, because an entry it did learn is evidence the address
+  is on the wire after all. `ScanResultsViewModel.Begin`/`Merge` accumulate passes into one list.
+  `PlanConformance` runs once over every identity pass combined; scan history stays per subnet and
+  routed ranges are not added to it.
+- **Never on screen:** the sweep checkbox and its caption, the Response column, the empty-plan panel,
+  the routed-ranges box and its note, the second address in the interface bar, and the regrouped
+  toolbar. **A second address on a real adapter has never been read** - `NicMonitor` takes them from
+  `UnicastAddresses` - and **no unicast ListIdentity has crossed a real router**. **No sweep has been run against a real subnet**, and `IcmpPinger` plus
   `ArpTable` together on a real /24 is the first real check - compare the result with `arp -a`.
 
 ### Pick up here

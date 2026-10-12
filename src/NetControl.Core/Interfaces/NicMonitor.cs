@@ -162,8 +162,21 @@ public sealed class NicMonitor : INicInventory, IDisposable
                 continue;
             }
 
-            UnicastIPAddressInformation? unicast = properties.UnicastAddresses
-                .FirstOrDefault(a => a.Address.AddressFamily == AddressFamily.InterNetwork);
+            List<UnicastIPAddressInformation> v4Addresses = [.. properties.UnicastAddresses
+                .Where(a => a.Address.AddressFamily == AddressFamily.InterNetwork)];
+            UnicastIPAddressInformation? unicast = v4Addresses.FirstOrDefault();
+
+            // The first address stays the adapter's address for everything that serves or binds.
+            // The rest are kept for discovery: a laptop given a second address to reach a second
+            // subnet on the same panel switch is the ordinary way to commission a mixed panel.
+            var extras = new List<Ipv4Subnet>();
+            foreach (UnicastIPAddressInformation other in v4Addresses.Skip(1))
+            {
+                if (Ipv4Subnet.TryCreate(other.Address, other.IPv4Mask, out Ipv4Subnet subnet))
+                {
+                    extras.Add(subnet);
+                }
+            }
 
             long speed;
             try
@@ -188,7 +201,10 @@ public sealed class NicMonitor : INicInventory, IDisposable
                 unicast?.IPv4Mask,
                 ni.OperationalStatus,
                 ni.NetworkInterfaceType,
-                speed));
+                speed)
+            {
+                ExtraAddresses = extras.Count == 0 ? NicAddressList.Empty : new NicAddressList(extras),
+            });
         }
 
         list.Sort((a, b) => a.Index.CompareTo(b.Index));

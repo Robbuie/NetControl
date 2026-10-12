@@ -62,6 +62,68 @@ public sealed partial class ScanResultsViewModel : ObservableObject
     private string? _sweepTooltip;
 
     /// <summary>
+    /// Subnets beyond this adapter's own to sweep, as typed: "10.20.5.0/24, 10.20.6.10-50". Kept with
+    /// the project, because they are the site's. Checked as it is typed, so a mistake shows before
+    /// the button is pressed rather than after.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(RoutedRangesProblem))]
+    [NotifyPropertyChangedFor(nameof(RoutedRangesNote))]
+    [NotifyPropertyChangedFor(nameof(ParsedRoutedRanges))]
+    private string _routedRanges = string.Empty;
+
+    /// <summary>False in a build with no sweep, where there is nothing to do with a range.</summary>
+    [ObservableProperty]
+    private bool _canRoute;
+
+    /// <summary>The widest one range may be - the same cap a subnet sweep has.</summary>
+    public const int MaxRangeAddresses = 1024;
+
+    /// <summary>The most routed addresses one scan will ping, all ranges together.</summary>
+    public const int MaxRoutedAddresses = 4096;
+
+    /// <summary>The ranges as parsed, or empty while <see cref="RoutedRangesProblem"/> says why not.</summary>
+    public IReadOnlyList<SweepRange> ParsedRoutedRanges =>
+        ParseRoutedRanges(out IReadOnlyList<SweepRange> ranges) is null ? ranges : [];
+
+    /// <summary>Why the ranges cannot be used, naming each piece that is wrong. Null when they can.</summary>
+    public string? RoutedRangesProblem => ParseRoutedRanges(out _);
+
+    /// <summary>One line under the box: how much a scan will add, or nothing when the box is empty.</summary>
+    public string? RoutedRangesNote
+    {
+        get
+        {
+            if (RoutedRangesProblem is not null)
+            {
+                return null;
+            }
+
+            IReadOnlyList<SweepRange> ranges = ParsedRoutedRanges;
+            return ranges.Count == 0
+                ? null
+                : FormattableString.Invariant(
+                    $"{ranges.Count} range(s), {ranges.Sum(r => r.Count):N0} addresses, pinged and then asked to identify.")
+                    + " Behind a router there are no MAC addresses, and devices that ignore ping are not seen.";
+        }
+    }
+
+    private string? ParseRoutedRanges(out IReadOnlyList<SweepRange> ranges)
+    {
+        if (!SweepRange.TryParseList(RoutedRanges, MaxRangeAddresses, out ranges, out string? problem))
+        {
+            return problem;
+        }
+
+        int total = ranges.Sum(r => r.Count);
+        return total > MaxRoutedAddresses
+            ? string.Create(
+                System.Globalization.CultureInfo.InvariantCulture,
+                $"Those ranges come to {total:N0} addresses, more than the {MaxRoutedAddresses:N0} one scan will ping. Narrow them, or scan in parts.")
+            : null;
+    }
+
+    /// <summary>
     /// What the last scan had to say about the plan. <see cref="PlanConformanceReport.None"/> until
     /// a scan has been compared against one.
     /// </summary>
@@ -139,6 +201,64 @@ public sealed partial class ScanResultsViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Empties the list for a new scan and says what is happening. Each pass of the scan then adds
+    /// to it - <see cref="Merge"/> and <see cref="ApplySweep"/> - so an adapter with two addresses,
+    /// and the routed ranges after them, end up in one list.
+    /// </summary>
+    public void Begin(string status)
+    {
+        Rows.Clear();
+        SelectedRow = null;
+        Status = status;
+        ApplyConformance(PlanConformanceReport.None);
+        ApplyChanges(null);
+        OnPropertyChanged(nameof(HasResults));
+    }
+
+    /// <summary>
+    /// Adds what an identity pass found. A device at an address a sweep already put on screen takes
+    /// that row over and keeps its ping result, so an address is never two rows.
+    /// </summary>
+    public void Merge(DiscoveryResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        var rows = Rows.ToList();
+
+        foreach (DiscoveredDevice device in result.Devices)
+        {
+            ScanResultViewModel? sweptOnly = rows.FirstOrDefault(r => r.Device is null
+                && (r.Address.Equals(device.Address) || r.Address.Equals(device.SenderAddress)));
+
+            var row = new ScanResultViewModel(device);
+
+            if (sweptOnly is not null)
+            {
+                row.Host = sweptOnly.Host;
+                rows.Remove(sweptOnly);
+            }
+
+            rows.Add(row);
+        }
+
+        Replace(rows);
+    }
+
+    private void Replace(List<ScanResultViewModel> rows)
+    {
+        ScanResultViewModel? selected = SelectedRow;
+        Rows.Clear();
+
+        foreach (ScanResultViewModel row in rows.OrderBy(r => AddressKey(r.Address)))
+        {
+            Rows.Add(row);
+        }
+
+        SelectedRow = selected is not null && Rows.Contains(selected) ? selected : null;
+        OnPropertyChanged(nameof(HasResults));
+    }
+
+    /// <summary>
     /// Joins a subnet sweep onto the rows the identity scan put on screen: an address that answered
     /// both is one row carrying both, and everything that only the sweep found gets a row of its own.
     /// The list ends up in address order as a number, so it reads top to bottom the way a panel does.
@@ -166,16 +286,7 @@ public sealed partial class ScanResultsViewModel : ObservableObject
             }
         }
 
-        ScanResultViewModel? selected = SelectedRow;
-        Rows.Clear();
-
-        foreach (ScanResultViewModel row in rows.OrderBy(r => AddressKey(r.Address)))
-        {
-            Rows.Add(row);
-        }
-
-        SelectedRow = selected;
-        OnPropertyChanged(nameof(HasResults));
+        Replace(rows);
     }
 
     /// <summary>An IPv4 address as a number, so .2 sorts above .100.</summary>

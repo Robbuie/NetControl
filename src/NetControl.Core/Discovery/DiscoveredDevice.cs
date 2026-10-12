@@ -59,6 +59,10 @@ public sealed record DiscoveredDevice
         MacSource.NotChecked =>
             "The ARP table cannot be read on this machine, so there is no hardware address to plan against.",
 
+        MacSource.Routed =>
+            $"{SenderAddress} is behind a router, so its MAC cannot be seen from this PC and it cannot be planned from here. "
+                + "Plug into its own network and scan again, or read the MAC off the device's label.",
+
         MacSource.ArpOnAnotherAdapter =>
             $"{SenderAddress} is in the ARP cache, but a different adapter learned it - so that hardware "
                 + "address probably belongs to something else on another segment. Scan from the adapter the "

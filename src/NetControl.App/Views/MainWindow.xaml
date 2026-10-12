@@ -772,6 +772,27 @@
                           ToolTip="{Binding Scan.SweepTooltip}" />
                 <Button Content="Clear" Margin="12,0,0,0" Command="{Binding ClearScanCommand}" />
               </WrapPanel>
+
+              <!-- Subnets beyond the cable this laptop is on - other VLANs behind the plant's
+                   layer-3 switch. Swept by ping, then each address that answered is asked to
+                   identify itself by name; a broadcast and ARP both stop at the router, so these
+                   rows have no MAC and the note under the box says so before anything is sent.
+                   A second subnet on the SAME cable does not belong here: give the adapter a
+                   second address and it is scanned in full, which the checkbox caption lists. -->
+              <DockPanel Margin="0,6,0,0" LastChildFill="False"
+                         Visibility="{Binding Scan.CanRoute, Converter={StaticResource BoolToVisible}}">
+                <TextBlock Text="Routed ranges:" VerticalAlignment="Center" Margin="0,0,8,0" />
+                <TextBox Width="360"
+                         VerticalAlignment="Center"
+                         Text="{Binding Scan.RoutedRanges, UpdateSourceTrigger=PropertyChanged}"
+                         ToolTip="Other subnets to scan, reached through a router. Separate with commas: 10.20.5.0/24, 10.20.6.10-50, 10.20.7.4. Kept with the project. Leave empty to scan only this adapter's own subnets." />
+              </DockPanel>
+              <TextBlock Style="{StaticResource Muted}" Margin="0,4,0,0" TextWrapping="Wrap"
+                         Text="{Binding Scan.RoutedRangesNote}"
+                         Visibility="{Binding Scan.RoutedRangesNote, Converter={StaticResource NotNullToVisible}}" />
+              <TextBlock Style="{StaticResource MutedFault}" Margin="0,4,0,0" TextWrapping="Wrap"
+                         Text="{Binding Scan.RoutedRangesProblem}"
+                         Visibility="{Binding Scan.RoutedRangesProblem, Converter={StaticResource NotNullToVisible}}" />
               <TextBlock Style="{StaticResource Muted}"
                          Margin="0,6,0,0"
                          TextWrapping="Wrap"
