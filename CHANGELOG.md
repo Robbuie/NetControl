@@ -4,6 +4,27 @@ Newest first. The release workflow copies a version's section onto its GitHub re
 write it for the person deciding whether to install the update. The heading has to start
 `## <version>` for that to find it.
 
+## 0.10.0 - Scan finds everything on the network, and a tidier plan toolbar
+
+- **Scan now finds every device on the subnet, not only EtherNet/IP ones.** A new tick box beside
+  Scan, on by default, pings every address on the selected adapter's subnet and then reads the PC's
+  ARP table - the way an office IP scanner works. PCs, switches, HMIs, cameras, PROFINET and Modbus
+  devices now appear alongside the EtherNet/IP ones. Devices set to ignore ping still show up, marked
+  **ARP only**, because they have to answer ARP. The caption says which subnet and how many addresses
+  before you press anything.
+- **Gentle by design.** At most about fifty pings a second, no TCP at all, and only the adapter's own
+  subnet. A subnet wider than a /22 is refused (Scan still does its EtherNet/IP half), and every sweep
+  is written to the project's event log.
+- **One row per address.** An EtherNet/IP device that also answered ping is one row with its product
+  name and ping time. The list is in address order, with a new **Response** column. Anything the
+  sweep found can be added to the plan with a double-click, at the address it answered on.
+- **The plan toolbar only shows what can be used.** With an empty plan, the window explains the three
+  ways to add a device - watch for requests, scan the network, or import a CSV - with a button for
+  each, instead of a row of disabled buttons. Once there is a plan the toolbar is grouped into
+  **Selected device** (Set static, Allow reset, and a **More** menu holding Diagnose, Modbus, Device
+  quirks and Enable BOOTP/DHCP) and **Whole plan** (Set static on all, Ping plan). **Import CSV...**
+  is now on the toolbar as well as the File menu.
+
 ## 0.9.2 - a user guide in the Help menu
 
 - **A user guide, in the Help menu.** Help > User guide, or F1 anywhere in the main window, opens

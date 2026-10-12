@@ -1,3 +1,4 @@
+using System.Net;
 using NetControl.App.Serving;
 using NetControl.App.ViewModels;
 using NetControl.Core;
@@ -6,6 +7,7 @@ using NetControl.Core.Discovery;
 using NetControl.Core.Interfaces;
 using NetControl.Core.Oui;
 using NetControl.Core.Persistence;
+using NetControl.Core.Reachability;
 using Xunit;
 
 namespace NetControl.Tests;
@@ -21,6 +23,8 @@ namespace NetControl.Tests;
 public sealed class MainViewModelScanTests : IDisposable
 {
     private static readonly MacAddress DeviceMac = MacAddress.Parse("00:1D:9C:C7:B0:70");
+    private static readonly MacAddress SwitchMac = MacAddress.Parse("00:0E:C6:00:00:01");
+    private static readonly MacAddress SilentMac = MacAddress.Parse("00:1D:9C:C7:B0:72");
 
     private readonly ProjectStore _project = ProjectStore.CreateInMemory("Test");
     private readonly StaticMapPolicy _policy = new();
@@ -181,6 +185,141 @@ public sealed class MainViewModelScanTests : IDisposable
     }
 
     /// <summary>
+    /// The sweep is what turns Scan into "what is on this network": everything that answered ping
+    /// or ARP gets a row, and an EtherNet/IP device that answered both is one row carrying both.
+    /// </summary>
+    [Fact]
+    public async Task ASweepAddsEverythingElseOnTheSubnetAndJoinsByAddress()
+    {
+        var pinger = new FakePinger { Delay = TimeSpan.Zero }
+            .Answers("192.168.1.51", PingStatus.Replied)
+            .Answers("192.168.1.1", PingStatus.Replied);
+        var arp = new FakeArpLookup(
+            new ArpEntry(IPAddress.Parse("192.168.1.51"), DeviceMac, 12, ArpEntryType.Dynamic),
+            new ArpEntry(IPAddress.Parse("192.168.1.1"), SwitchMac, 12, ArpEntryType.Dynamic),
+            new ArpEntry(IPAddress.Parse("192.168.1.60"), SilentMac, 12, ArpEntryType.Dynamic));
+
+        MainViewModel viewModel = Build(out _, arp: arp, pinger: pinger);
+        SelectAdapter(viewModel);
+
+        await viewModel.ScanCommand.ExecuteAsync(null);
+
+        Assert.Equal(
+            ["192.168.1.1", "192.168.1.51", "192.168.1.60"],
+            viewModel.Scan.Rows.Select(r => r.AddressText).ToArray());
+
+        ScanResultViewModel gateway = viewModel.Scan.Rows[0];
+        Assert.False(gateway.IsEtherNetIp);
+        Assert.Equal(string.Empty, gateway.ProductText);
+        Assert.Equal("00:0E:C6:00:00:01", gateway.MacText);
+        Assert.Equal("2 ms", gateway.ResponseText);
+        Assert.True(gateway.CanBePlanned);
+
+        ScanResultViewModel adapter = viewModel.Scan.Rows[1];
+        Assert.True(adapter.IsEtherNetIp);
+        Assert.Equal("1734-AENT/B", adapter.ProductText);
+        Assert.Equal("2 ms", adapter.ResponseText);
+
+        Assert.Equal("ARP only", viewModel.Scan.Rows[2].ResponseText);
+        Assert.Contains("answered ARP only", viewModel.Scan.Status, StringComparison.Ordinal);
+    }
+
+    /// <summary>Each half transmitted, so each half is in the record - and the sweep row says how much it sent.</summary>
+    [Fact]
+    public async Task RecordsTheSweepAsItsOwnScanRow()
+    {
+        var pinger = new FakePinger { Delay = TimeSpan.Zero }.Answers("192.168.1.51", PingStatus.Replied);
+
+        MainViewModel viewModel = Build(out _, pinger: pinger);
+        SelectAdapter(viewModel);
+
+        await viewModel.ScanCommand.ExecuteAsync(null);
+
+        IReadOnlyList<EventRecord> rows = _project.Events.All();
+        Assert.Equal(2, rows.Count);
+        Assert.All(rows, row => Assert.Equal(EventCategory.Scan, row.Category));
+        Assert.Contains("Swept 253 address(es) on 192.168.1.0/24", rows[1].Message, StringComparison.Ordinal);
+        Assert.Contains("\"pinged\":253", rows[1].Detail ?? string.Empty, StringComparison.Ordinal);
+    }
+
+    /// <summary>Unticked, Scan is the one broadcast it always was and not a single echo request goes out.</summary>
+    [Fact]
+    public async Task SendsNoPingsWhenTheSweepIsUnticked()
+    {
+        var pinger = new FakePinger { Delay = TimeSpan.Zero };
+
+        MainViewModel viewModel = Build(out FakeIdentityScanner scanner, pinger: pinger);
+        SelectAdapter(viewModel);
+        viewModel.Scan.SweepSubnet = false;
+
+        await viewModel.ScanCommand.ExecuteAsync(null);
+
+        Assert.Empty(pinger.Asked);
+        Assert.Equal(1, scanner.Scans);
+        Assert.Single(viewModel.Scan.Rows);
+        Assert.Single(_project.Events.All());
+    }
+
+    /// <summary>
+    /// A subnet too wide to sweep is said so on the checkbox before anybody presses anything, and
+    /// Scan still does its identity half rather than refusing outright.
+    /// </summary>
+    [Fact]
+    public async Task AWideSubnetDisablesTheSweepButNotTheScan()
+    {
+        var pinger = new FakePinger { Delay = TimeSpan.Zero };
+
+        MainViewModel viewModel = Build(out FakeIdentityScanner scanner, pinger: pinger);
+        viewModel.InterfaceBar.ApplyInventory([Nics.Healthy(address: "10.20.1.5", mask: "255.255.0.0")]);
+        viewModel.InterfaceBar.SelectedAdapter = viewModel.InterfaceBar.Adapters[0];
+
+        Assert.False(viewModel.Scan.CanSweep);
+        Assert.Contains("65,533", viewModel.Scan.SweepTooltip ?? string.Empty, StringComparison.Ordinal);
+
+        await viewModel.ScanCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, scanner.Scans);
+        Assert.Empty(pinger.Asked);
+    }
+
+    [Fact]
+    public void TheSweepCaptionNamesTheSubnetAndTheCount()
+    {
+        MainViewModel viewModel = Build(out _, pinger: new FakePinger());
+        SelectAdapter(viewModel);
+
+        Assert.True(viewModel.Scan.CanSweep);
+        Assert.Contains("192.168.1.0/24", viewModel.Scan.SweepCaption, StringComparison.Ordinal);
+        Assert.Contains("253 addresses", viewModel.Scan.SweepCaption, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Something only the sweep found can still be planned: the address is the one it answered on,
+    /// the MAC came out of this adapter's ARP cache, and the mask is the adapter's because the sweep
+    /// only ever covers the adapter's own subnet.
+    /// </summary>
+    [Fact]
+    public async Task PlansADeviceOnlyTheSweepFound()
+    {
+        var pinger = new FakePinger { Delay = TimeSpan.Zero }.Answers("192.168.1.70", PingStatus.Replied);
+        var arp = new FakeArpLookup(
+            new ArpEntry(IPAddress.Parse("192.168.1.70"), SilentMac, 12, ArpEntryType.Dynamic));
+
+        MainViewModel viewModel = Build(out _, new FakeIdentityScanner(), arp, pinger);
+        SelectAdapter(viewModel);
+
+        await viewModel.ScanCommand.ExecuteAsync(null);
+        viewModel.PlanFromScan(Assert.Single(viewModel.Scan.Rows));
+
+        DeviceRowViewModel row = Assert.Single(viewModel.Plan.Rows);
+        Assert.Equal(SilentMac, row.Mac);
+        Assert.Equal("192.168.1.70", row.IpText);
+        Assert.Equal("255.255.255.0", row.MaskText);
+        Assert.StartsWith("Found by subnet sweep", row.Notes, StringComparison.Ordinal);
+        Assert.True(viewModel.Scan.Rows[0].IsAlreadyPlanned);
+    }
+
+    /// <summary>
     /// A scan transmits, so it needs an adapter that can source one - chosen deliberately, exactly
     /// like serve mode. There is no "scan on whatever adapter Windows would have picked".
     /// </summary>
@@ -235,14 +374,23 @@ public sealed class MainViewModelScanTests : IDisposable
     private MainViewModel Build(
         out FakeIdentityScanner scanner,
         FakeIdentityScanner? withScanner = null,
-        IArpLookup? arp = null)
+        IArpLookup? arp = null,
+        FakePinger? pinger = null)
     {
         scanner = withScanner ?? new FakeIdentityScanner(Identities.Reply());
 
-        var discovery = new DeviceDiscovery(
-            scanner,
-            arp ?? FakeArpLookup.Holding("192.168.1.51", DeviceMac),
-            new FakeOuiLookup());
+        IArpLookup table = arp ?? FakeArpLookup.Holding("192.168.1.51", DeviceMac);
+        var discovery = new DeviceDiscovery(scanner, table, new FakeOuiLookup());
+
+        // No pinger, no sweep - which is how every test above this one sees Scan: the identity
+        // request alone, exactly as it was before the sweep existed.
+        SubnetSweep? sweep = pinger is null
+            ? null
+            : new SubnetSweep(
+                pinger,
+                table,
+                new FakeOuiLookup(),
+                new SubnetSweepOptions { Timeout = TimeSpan.FromMilliseconds(20), PauseBetween = TimeSpan.Zero, ArpSettle = TimeSpan.Zero, MaxInFlight = 64 });
 
         return new MainViewModel(
             new ImmediateDispatcher(),
@@ -253,6 +401,7 @@ public sealed class MainViewModelScanTests : IDisposable
             OuiDatabase.Empty,
             _project,
             new TestTimeProvider(Events.At),
-            discovery: discovery);
+            discovery: discovery,
+            sweep: sweep);
     }
 }

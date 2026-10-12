@@ -1,6 +1,7 @@
 // UseWPF drops System.IO from the implicit usings, because WPF ships System.Windows.Shapes.Path
 // and the SDK will not let two Path types collide. Save As needs File, so this file asks for it
 // back explicitly rather than the whole project doing so.
+using System.Globalization;
 using System.IO;
 using System.Net;
 using System.Text;
@@ -70,6 +71,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// business scanning gets a view model whose scan button is simply unavailable.
     /// </summary>
     private readonly DeviceDiscovery? _discovery;
+
+    /// <summary>
+    /// Ping-and-ARP over the selected adapter's whole subnet. Null in a build without one, in which
+    /// case Scan is the EtherNet/IP identity request alone and the checkbox is not offered.
+    /// </summary>
+    private readonly SubnetSweep? _sweep;
 
     /// <summary>
     /// The last scan, kept only so the comparison against the plan can be re-run when the plan is
@@ -175,7 +182,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         IPinger? pinger = null,
         DeviceHealthReader? healthReader = null,
         ServiceProbe? serviceProbe = null,
-        ICaptureProvider? capture = null)
+        ICaptureProvider? capture = null,
+        SubnetSweep? sweep = null)
     {
         ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentNullException.ThrowIfNull(nics);
@@ -195,6 +203,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _time = timeProvider ?? TimeProvider.System;
         _listenPort = listenPort;
         _discovery = discovery;
+        _sweep = sweep;
         _buildStamp = buildStamp;
 
         InterfaceBar = new InterfaceBarViewModel(oui, _time, listenPort);
@@ -256,6 +265,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         ApplyProject(_project);
 
         RefreshAdapters();
+        UpdateSweepPlan();
     }
 
     public InterfaceBarViewModel InterfaceBar { get; }
@@ -608,7 +618,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             // of the three reasons it is decides what the user should do next.
             Log.AddNotice(
                 $"{result.AddressText} cannot go into the plan yet.",
-                result.Device.PlanningObstacle);
+                result.PlanningObstacle);
             return;
         }
 
@@ -619,14 +629,17 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             // Mask first, then the address: each assignment commits the row, and a row carrying an
             // address with no mask is briefly amber. Harmless, but there is no reason to write it.
-            string? mask = MaskForScannedAddress(result.Device.Address);
+            string? mask = MaskForScannedAddress(result.Address);
             if (mask is not null)
             {
                 row.MaskText = mask;
             }
 
             row.IpText = result.AddressText;
-            row.Notes = $"Found by scan: {result.ProductText} rev {result.RevisionText} serial {result.SerialText}";
+            row.Notes = result.IsEtherNetIp
+                ? $"Found by scan: {result.ProductText} rev {result.RevisionText} serial {result.SerialText}"
+                : $"Found by subnet sweep ({result.ResponseText})"
+                    + (result.VendorText.Length > 0 ? $": {result.VendorText}" : string.Empty);
 
             Log.AddNotice(
                 $"{result.Mac} added to the plan at {result.AddressText} - the address it is already holding.",
@@ -686,7 +699,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     {
         ArgumentNullException.ThrowIfNull(result);
 
-        Diagnostics.SetTarget(result.Device.Address, mask: null, name: result.ProductText);
+        Diagnostics.SetTarget(
+            result.Address,
+            mask: null,
+            name: result.ProductText.Length > 0 ? result.ProductText : result.VendorText.Length > 0 ? result.VendorText : null);
         DiagnosticsRequested?.Invoke(this, EventArgs.Empty);
     }
 
@@ -812,17 +828,23 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Asks every EtherNet/IP device on the selected adapter to identify itself.
+    /// Asks every EtherNet/IP device on the selected adapter to identify itself and then, when the
+    /// box is ticked, sweeps the adapter's whole subnet for everything else.
     ///
-    /// <para><b>This transmits</b>, which is why it is a button and never a timer, and why it
+    /// <para><b>This transmits</b>, which is why it is a button and never a timer, and why each half
     /// writes an <see cref="EventCategory.Scan"/> row whether or not it finds anything: it put
-    /// packets on what might be a plant network, so it belongs in the record. It sends ListIdentity
-    /// and nothing else - no connection is opened to any device and nothing is written to one.</para>
+    /// packets on what might be a plant network, so it belongs in the record. The identity half sends
+    /// ListIdentity; the sweep sends ICMP echo. No connection is opened to any device and nothing is
+    /// written to one.</para>
+    ///
+    /// <para>The identity scan goes first because it is two seconds and names what it finds, and the
+    /// sweep then joins onto those rows by address - so a Rockwell adapter is one row with a product
+    /// name and a ping time, not two rows that have to be matched up by eye.</para>
     /// </summary>
     [RelayCommand(CanExecute = nameof(CanScan))]
     private async Task ScanAsync(CancellationToken cancellationToken)
     {
-        if (_discovery is null || InterfaceBar.SelectedAdapter?.Nic is not { } nic)
+        if (InterfaceBar.SelectedAdapter?.Nic is not { } nic)
         {
             SetError(
                 "No adapter is selected.",
@@ -830,17 +852,63 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
+        bool sweep = _sweep is not null && Scan.SweepSubnet && Scan.CanSweep;
+
         ClearError();
         SetScanning(true);
         Scan.Status = $"Scanning from [{nic.Index}] {nic.Name}...";
         Log.AddNotice(
             $"Scan started on [{nic.Index}] {nic.Name}.",
-            "One ListIdentity broadcast. Nothing is written to any device.");
+            (_discovery is null ? string.Empty : "One ListIdentity broadcast. ")
+                + (sweep ? "One echo request to each address on the subnet. " : string.Empty)
+                + "Nothing is written to any device.");
 
         try
         {
+            string? identitySummary = null;
+
+            if (_discovery is not null)
+            {
+                identitySummary = await IdentifyAsync(nic, cancellationToken).ConfigureAwait(true);
+
+                if (identitySummary is null)
+                {
+                    return;
+                }
+            }
+            else
+            {
+                _lastScan = null;
+                Scan.Clear();
+            }
+
+            if (sweep)
+            {
+                await SweepAsync(nic, identitySummary, cancellationToken).ConfigureAwait(true);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // The window is closing mid-scan. Nothing was written to anything, so there is nothing
+            // to say that the absence of results does not already say.
+            Scan.Status = "Scan cancelled.";
+        }
+        finally
+        {
+            SetScanning(false);
+        }
+    }
+
+    /// <summary>
+    /// The EtherNet/IP half of a scan. Returns its one-line summary, or null when it could not run -
+    /// in which case the reason is already on screen and in the log.
+    /// </summary>
+    private async Task<string?> IdentifyAsync(NicInfo nic, CancellationToken cancellationToken)
+    {
+        try
+        {
             DiscoveryResult result =
-                await _discovery.ScanAsync(nic, DirectlyAsked(), cancellationToken).ConfigureAwait(true);
+                await _discovery!.ScanAsync(nic, DirectlyAsked(), cancellationToken).ConfigureAwait(true);
 
             _lastScan = result;
 
@@ -883,29 +951,137 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
                     Log.AddNotice(finding.Message);
                 }
             }
+
+            return result.Summary;
         }
         catch (EnipException ex)
         {
             SetError(ex.Message, ex.Remediation);
             Scan.Status = ex.Message;
             Log.AddNotice(ex.Message, ex.Remediation);
+            return null;
         }
-        catch (OperationCanceledException)
+    }
+
+    /// <summary>
+    /// The ping-and-ARP half of a scan, joined onto whatever the identity half found. A sweep the
+    /// subnet will not allow - too wide, no mask - is reported and leaves the identity results alone.
+    /// </summary>
+    private async Task SweepAsync(NicInfo nic, string? identitySummary, CancellationToken cancellationToken)
+    {
+        string lead = identitySummary is null ? string.Empty : identitySummary + " ";
+
+        // Progress arrives from whichever thread a ping finished on, and may still be queued for the
+        // UI thread after the result is on screen. The flag keeps a late count from overwriting it.
+        bool finished = false;
+
+        void OnProgress(object? sender, PingProgressEventArgs e) => RunOnUi(() =>
         {
-            // The window is closing mid-scan. Nothing was written to anything, so there is nothing
-            // to say that the absence of results does not already say.
-            Scan.Status = "Scan cancelled.";
+            if (!finished)
+            {
+                Scan.Status = string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"{lead}Sweeping the subnet: {e.Completed} of {e.Total} addresses...");
+            }
+        });
+
+        _sweep!.Progress += OnProgress;
+
+        try
+        {
+            SubnetSweepResult result = await _sweep.SweepAsync(nic, cancellationToken).ConfigureAwait(true);
+
+            finished = true;
+
+            Scan.ApplySweep(result);
+            Scan.ApplyPlan(Plan.IsPlanned);
+            RecompareScan();
+            Scan.Status = lead + result.Summary;
+
+            RecordSweep(result);
+            Log.AddNotice(result.Summary);
+        }
+        catch (ReachabilityException ex)
+        {
+            finished = true;
+            Scan.Status = $"{lead}The subnet was not swept: {ex.Message}";
+            Log.AddNotice(ex.Message, ex.Remediation);
         }
         finally
         {
-            SetScanning(false);
+            finished = true;
+            _sweep.Progress -= OnProgress;
         }
     }
 
     private bool CanScan() =>
-        _discovery is not null
+        (_discovery is not null || _sweep is not null)
         && !Scan.IsScanning
         && InterfaceBar.SelectedAdapter?.Nic is { CanServe: true };
+
+    /// <summary>
+    /// Re-reads what a sweep from the selected adapter would cover, for the checkbox's caption. Sends
+    /// nothing; called whenever the adapter changes.
+    /// </summary>
+    private void UpdateSweepPlan()
+    {
+        if (_sweep is null)
+        {
+            Scan.CanSweep = false;
+            Scan.SweepCaption = "Subnet sweep is not available in this build";
+            Scan.SweepTooltip = null;
+            return;
+        }
+
+        if (_sweep.TryPlan(InterfaceBar.SelectedAdapter?.Nic, out Ipv4Subnet subnet, out int addresses, out string? problem))
+        {
+            int seconds = (int)Math.Ceiling(_sweep.Options.Estimate(addresses).TotalSeconds);
+
+            Scan.CanSweep = true;
+            Scan.SweepCaption = string.Create(
+                CultureInfo.InvariantCulture,
+                $"Also ping every address on {subnet} ({addresses:N0} addresses, about {seconds} s)");
+            Scan.SweepTooltip =
+                "Finds everything with an IP address - PCs, switches, HMIs, cameras and devices that do not speak "
+                + "EtherNet/IP. One echo request to each address, a few at a time, then a read of this PC's ARP "
+                + "cache, which also catches devices set to ignore ping. Nothing is connected to and nothing is "
+                + "written.";
+        }
+        else
+        {
+            Scan.CanSweep = false;
+            Scan.SweepCaption = "Subnet sweep unavailable on this adapter";
+            Scan.SweepTooltip = problem;
+        }
+    }
+
+    /// <summary>
+    /// One row for the sweep, whether or not it found anything: it put an echo request on every
+    /// address of somebody's subnet. Never throws, for the same reason the other recorders do not.
+    /// </summary>
+    private void RecordSweep(SubnetSweepResult result)
+    {
+        try
+        {
+            _project.Events.Append(
+                result.Severity,
+                EventCategory.Scan,
+                result.Summary,
+                target: $"[{result.Nic.Index}] {result.Nic.Name}",
+                detail: new EventDetail()
+                    .Add("subnet", result.Subnet.ToString())
+                    .Add("pinged", result.AddressesPinged)
+                    .Add("found", result.Hosts.Count)
+                    .Add("answeredPing", result.AnsweredPing)
+                    .Add("arpOnly", result.ArpOnly)
+                    .Add("arpChecked", result.ArpChecked));
+        }
+        catch (PersistenceException ex)
+        {
+            RecordingIsIncomplete = true;
+            Log.AddNotice($"Could not record the subnet sweep: {ex.Message}", ex.Remediation);
+        }
+    }
 
     private void SetScanning(bool scanning)
     {
@@ -1337,6 +1513,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             // A scan needs an adapter that can source one, same as a reply does - and an adapter
             // that has just been unplugged must not leave the button live.
             ScanCommand.NotifyCanExecuteChanged();
+            UpdateSweepPlan();
         }
     }
 

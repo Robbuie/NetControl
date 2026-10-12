@@ -49,8 +49,8 @@ src/NetControl.Core/          network engine - MUST NOT reference any UI assembl
     Enip/                     EtherNet/IP encapsulation: one session, one device
     Cip/                      CIP objects - 0xF5 is where the address lives
     Commissioning/            set static / disable BOOTP, with the readback
-    Discovery/                the scan + ARP join, the plan-against-segment comparison, and the
-                              scan-against-last-scan diff (InventoryDiff)
+    Discovery/                the scan + ARP join, the subnet sweep (ping + ARP), the
+                              plan-against-segment comparison, and the scan-against-last-scan diff
     Reachability/             ping, the TCP service check, its protocol handshakes, and
                               UnicastTarget - the one-host rule
     Modbus/                   Modbus/TCP reads - there is no write, by design
@@ -196,6 +196,10 @@ These are hard rules, not preferences:
 - **Every state-changing operation gets logged** to the append-only event log with timestamp,
   target, what was sent, and what came back. Reads that transmit - ping, the service check, the
   CIP diagnostics read, a scan - get a row too: they are packets on somebody's network.
+- **The subnet sweep is ICMP echo and an ARP read, nothing else, on the adapter's own subnet only.**
+  `SubnetSweep` computes the range from the adapter's address and mask (never typed), refuses
+  anything wider than `SubnetSweepOptions.MaxAddresses` (a /22) before sending, and paces itself
+  through `PingSweep` - so every address still passes `UnicastTarget`. No TCP, no port scan.
 - **Every probe goes to one host, checked by `UnicastTarget` before the first packet.** Ping, the
   service check and the diagnostics read all refuse broadcast, multicast, 0.0.0.0, and - when the
   mask is known - the subnet's own broadcast and network address. One bad address in a ping of the
@@ -887,6 +891,36 @@ that every menu command still works - the menu's DataContext arrives through the
 cards in each theme, and the theme following Windows when the Windows setting is flipped.
 **Nothing in `Capture/` has run against a real Npcap**: the offsets in `pcap_pkthdr` and
 `bpf_program` are the documented Windows x64 layout, and the first real run is the check.
+
+**0.10.0 - Scan finds everything, and the plan toolbar shows only what can be used.** Written in a
+session whose sandbox could not reach NuGet. Core compiled for real (warnings as errors, clean); the
+app's view models were compiled against a hand-expanded stand-in for the CommunityToolkit source
+generator, and the test project ran against a stand-in xUnit and a stand-in Microsoft.Data.Sqlite
+over the system libsqlite3: 864 of 865 passed. The one failure is a TFTP test of a Windows path rule
+that cannot hold on Linux, unrelated to this change. **The XAML has not
+been compiled** - the Linux SDK's WindowsDesktop ref pack is a stub - so the first `dotnet build`, or
+CI, is the check for `MainWindow.xaml`. It was checked as XML, for handler names, for tokens, and
+for every `Plan.`/`Scan.` binding path against the view model sources.
+
+- `Discovery/SubnetSweep` + `SubnetSweepOptions` + `SubnetSweepResult` + `SweptHost`. One echo per
+  host address (not this PC's own), 32 in flight, 20 ms between starts, then the ARP table. **The ARP
+  read is the point**: a device set to ignore ping still answers ARP, so it is found with its MAC and
+  labelled "ARP only" rather than missed. Same MAC rule as the identity scan - an entry learned on
+  another adapter is not taken. `TryPlan` says what a sweep would cover without sending, which is
+  where the checkbox caption comes from.
+- `ScanResultViewModel` now carries `Device` (EtherNet/IP identity, nullable) and `Host` (sweep
+  result) joined by address; `ScanResultsViewModel.ApplySweep` joins and re-sorts numerically.
+  `MainViewModel.ScanAsync` does the identity half then the sweep; each half writes its own `Scan`
+  event row. `PlanFromScan` works for a sweep-only row - the address is the one it answered on and
+  the mask is the adapter's, because a sweep only ever covers the adapter's own subnet.
+- `PlanConformance` still only compares EtherNet/IP results against the plan. Extending it to sweep
+  hosts (a planned address answered by a MAC that is not the planned one) is the obvious next step.
+- Plan toolbar: `DeviceGridViewModel.HasRows`/`HasSelection`. Per-device and whole-plan groups are
+  hidden until there is a row; an empty plan shows a panel with Scan the network / Import CSV /
+  Add device. Diagnose, Modbus, Quirks and Enable BOOTP/DHCP moved into a **More** menu.
+- **Never on screen:** the sweep checkbox and its caption, the Response column, the empty-plan panel
+  and the regrouped toolbar. **No sweep has been run against a real subnet**, and `IcmpPinger` plus
+  `ArpTable` together on a real /24 is the first real check - compare the result with `arp -a`.
 
 ### Pick up here
 

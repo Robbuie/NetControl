@@ -26,6 +26,35 @@ public sealed class DeviceGridViewModelTests : IDisposable
 
     public void Dispose() => _project.Dispose();
 
+    /// <summary>
+    /// The window hides the device and whole-plan buttons behind these two, and shows how to start a
+    /// plan instead - so they must follow the rows and the selection as they change, not only on load.
+    /// </summary>
+    [Fact]
+    public void SaysWhetherThereIsAPlanAndASelectionToActOn()
+    {
+        var raised = new List<string?>();
+        _grid.PropertyChanged += (_, e) => raised.Add(e.PropertyName);
+
+        Assert.False(_grid.HasRows);
+        Assert.False(_grid.HasSelection);
+
+        DeviceRowViewModel row = _grid.PlanDevice(Drive);
+
+        Assert.True(_grid.HasRows);
+        Assert.True(_grid.HasSelection);
+        Assert.Contains(nameof(DeviceGridViewModel.HasRows), raised);
+        Assert.Contains(nameof(DeviceGridViewModel.HasSelection), raised);
+
+        _grid.SelectedRow = null;
+        Assert.False(_grid.HasSelection);
+
+        _grid.SelectedRow = row;
+        _grid.RemoveDeviceCommand.Execute(null);
+
+        Assert.False(_grid.HasRows);
+    }
+
     [Fact]
     public void LoadsThePlanThatIsAlreadyInTheFile()
     {

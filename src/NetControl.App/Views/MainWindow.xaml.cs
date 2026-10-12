@@ -93,6 +93,31 @@ public partial class MainWindow : Window
     private void OnGetNpcap(object sender, RoutedEventArgs e) =>
         Shell.Open(this, NetControl.Core.Capture.CaptureAvailability.DownloadUrl);
 
+    /// <summary>
+    /// The empty plan's "Scan the network": shows the Scan results tab and presses Scan. When Scan
+    /// cannot run - no adapter selected, or one with no address - the tab is still shown, because its
+    /// status line and the button's tooltip are where the reason is.
+    /// </summary>
+    private void OnScanFromEmptyPlan(object sender, RoutedEventArgs e)
+    {
+        ScanTab.IsSelected = true;
+
+        if (ViewModel is not { } viewModel)
+        {
+            return;
+        }
+
+        if (viewModel.ScanCommand.CanExecute(null))
+        {
+            viewModel.ScanCommand.Execute(null);
+        }
+        else if (!viewModel.Scan.IsScanning)
+        {
+            viewModel.Scan.Status = "Select the adapter that is plugged into the panel's network at the top of the "
+                + "window - it needs an IPv4 address on that network - then press Scan.";
+        }
+    }
+
     private void OnModbusSelectedRow(object sender, RoutedEventArgs e)
     {
         if (ViewModel is { Plan.SelectedRow: { } row } viewModel)

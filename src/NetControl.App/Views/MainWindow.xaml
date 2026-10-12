@@ -339,66 +339,103 @@
       <Border Grid.Row="0" Style="{StaticResource Card}" Margin="10,8,10,0" Padding="8,6,8,0">
       <DockPanel>
 
-        <!-- A WrapPanel rather than a StackPanel since the toolbar grew a second group: on a narrow
-             window the diagnostics buttons drop to a second line instead of off the edge. -->
+        <!-- Three groups, left to right, so it is plain what each button needs before it does
+             anything: adding to the plan; the one selected device; the whole plan. The second and
+             third are hidden until the plan has a row in it - an empty plan shows how to start one
+             (below) instead of a toolbar of buttons that are all disabled for the same reason. A
+             WrapPanel so a narrow window drops a group to a second line instead of off the edge. -->
         <WrapPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6">
           <TextBlock Text="Plan" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" />
-          <TextBlock Style="{StaticResource Muted}" Margin="10,0,0,0" VerticalAlignment="Center">
+          <TextBlock Style="{StaticResource Muted}" Margin="10,0,0,0" VerticalAlignment="Center"
+                     Visibility="{Binding Plan.HasRows, Converter={StaticResource BoolToVisible}}">
             <Run Text="{Binding Plan.ServableCount, Mode=OneWay}" />
             <Run Text=" of " />
             <Run Text="{Binding Plan.Rows.Count, Mode=OneWay}" />
             <Run Text=" rows complete and servable" />
           </TextBlock>
-          <Button Content="Add device" Margin="16,0,0,0" Command="{Binding Plan.AddDeviceCommand}" />
-          <Button Content="Remove" Command="{Binding Plan.RemoveDeviceCommand}" />
+          <Button Content="Add device" Margin="16,0,0,0" Command="{Binding Plan.AddDeviceCommand}"
+                  ToolTip="Adds an empty row to type a device into. Nothing is sent." />
+          <Button Content="Import CSV..." Click="OnImportPlan"
+                  ToolTip="Reads a whole plan from a spreadsheet. If anything in the file is wrong, nothing is imported and every problem is listed with its line number." />
+          <Button Content="Remove" Command="{Binding Plan.RemoveDeviceCommand}"
+                  Visibility="{Binding Plan.HasRows, Converter={StaticResource BoolToVisible}}"
+                  ToolTipService.ShowOnDisabled="True"
+                  ToolTip="Removes the selected row. Select a row first." />
 
-          <!-- The half of the job BOOTP does not do. An address served over BOOTP lasts until the
-               next power cycle, because the device is still a BOOTP client; this writes it in and
-               turns the protocol off, then reads it back off the device before saying so. -->
-          <Border Style="{StaticResource ToolbarSeparator}" Height="20" />
+          <!-- The selected device. The half of the job BOOTP does not do: an address served over
+               BOOTP lasts until the next power cycle, because the device is still a BOOTP client;
+               Set static writes it in and turns the protocol off, then reads it back off the device
+               before saying so. The rarer per-device actions are under "More" rather than each
+               having a button of its own. -->
+          <StackPanel Orientation="Horizontal"
+                      Visibility="{Binding Plan.HasRows, Converter={StaticResource BoolToVisible}}">
+            <Border Style="{StaticResource ToolbarSeparator}" Height="20" />
+            <TextBlock Style="{StaticResource Muted}" Text="Selected device:" VerticalAlignment="Center"
+                       Margin="0,0,6,0" />
 
-          <Button Content="Set static"
-                  MinWidth="110"
-                  Command="{Binding Plan.SetStaticCommand}"
-                  ToolTip="Writes the planned address into the selected device and disables BOOTP/DHCP, then reads it back to confirm it took. Sent only to that one device." />
+            <Button Content="Set static"
+                    MinWidth="96"
+                    Command="{Binding Plan.SetStaticCommand}"
+                    ToolTipService.ShowOnDisabled="True"
+                    ToolTip="Writes the planned address into the selected device and disables BOOTP/DHCP, then reads it back to confirm it took. Sent only to that one device. Needs a complete row (MAC, address and mask) selected." />
 
-          <!-- Its own control, because on a running line resetting a module is an outage and
-               nobody should discover they authorised one by pressing the button next to it. -->
-          <CheckBox Content="Allow reset if needed"
-                    VerticalAlignment="Center"
-                    Margin="4,0,0,0"
-                    IsChecked="{Binding Plan.AllowDeviceReset}"
-                    ToolTip="Some adapters hold a written configuration until the interface is reset. Left off, such a device is reported unverified rather than quietly restarted." />
+            <!-- Its own control, because on a running line resetting a module is an outage and
+                 nobody should discover they authorised one by pressing the button next to it. -->
+            <CheckBox Content="Allow reset if needed"
+                      VerticalAlignment="Center"
+                      Margin="4,0,0,0"
+                      IsChecked="{Binding Plan.AllowDeviceReset}"
+                      ToolTip="Some adapters hold a written configuration until the interface is reset. Left off, such a device is reported unverified rather than quietly restarted." />
 
-          <!-- The reverse operation. Handing a device back to a plant DHCP server is a real job at
-               the end of a commissioning - but it is also how a device stops owning its address, so
-               it is chosen by name, from a menu, behind a confirmation, rather than arrived at by
-               leaving a dropdown where somebody else left it. IsEnabled binds to the same rule the
-               commands use; a second copy of it written here is a copy that drifts. -->
-          <Menu Background="Transparent" BorderThickness="0" VerticalAlignment="Center"
-                Margin="10,0,0,0" Padding="0">
-            <MenuItem Header="Enable BOOTP/DHCP"
-                      ToolTip="Writes Configuration Control and nothing else. The addresses the device is holding are left alone, but it stops owning them and asks for one again at its next power cycle.">
-              <MenuItem Header="Enable _BOOTP on the selected device"
-                        IsEnabled="{Binding Plan.CanHandBack}"
-                        Click="OnEnableBootp" />
-              <MenuItem Header="Enable _DHCP on the selected device"
-                        IsEnabled="{Binding Plan.CanHandBack}"
-                        Click="OnEnableDhcp" />
-            </MenuItem>
-          </Menu>
+            <!-- Handing a device back to a plant DHCP server is a real job at the end of a
+                 commissioning - but it is also how a device stops owning its address, so it is
+                 chosen by name, from a menu, behind a confirmation. IsEnabled binds to the same rule
+                 the commands use; a second copy of it written here is a copy that drifts. -->
+            <Menu Background="Transparent" BorderThickness="0" VerticalAlignment="Center"
+                  Margin="8,0,0,0" Padding="0">
+              <MenuItem Header="More &#x25BE;"
+                        IsEnabled="{Binding Plan.HasSelection}"
+                        ToolTipService.ShowOnDisabled="True"
+                        ToolTip="Other things to do with the selected device. Select a row first.">
+                <MenuItem Header="_Diagnose this device" Click="OnDiagnoseSelectedRow"
+                          ToolTip="Opens the Diagnostics tab on the selected device: ping, its own link and fault counters over EtherNet/IP, and which services it offers. Nothing is sent until you press a button there." />
+                <MenuItem Header="_Read Modbus registers" Click="OnModbusSelectedRow"
+                          ToolTip="Opens the Modbus tab on this device's planned address. Read-only." />
+                <MenuItem Header="Device _quirks..." Click="OnEditQuirks"
+                          ToolTip="What this device is known to do wrong, and what NetControl does about each." />
+                <Separator />
+                <MenuItem Header="Enable _BOOTP on the selected device..."
+                          IsEnabled="{Binding Plan.CanHandBack}"
+                          Click="OnEnableBootp"
+                          ToolTip="Writes Configuration Control and nothing else. The addresses the device is holding are left alone, but it stops owning them and asks for one again at its next power cycle." />
+                <MenuItem Header="Enable _DHCP on the selected device..."
+                          IsEnabled="{Binding Plan.CanHandBack}"
+                          Click="OnEnableDhcp"
+                          ToolTip="Writes Configuration Control and nothing else. The addresses the device is holding are left alone, but it stops owning them and asks for one again at its next power cycle." />
+              </MenuItem>
+            </Menu>
+          </StackPanel>
 
-          <!-- The same sequence, over every row that is ready and not yet Verified, one device at a
-               time. The confirmation names each device; Stop takes effect between devices, never in
-               the middle of one, because half a write is the worst place to leave a device. -->
-          <Button Content="Set static on all..."
-                  Margin="10,0,0,0"
-                  Command="{Binding Plan.SetStaticAllCommand}"
-                  ToolTip="Set static on every complete row not already Verified, one device at a time, after a confirmation that lists them. Each is written only at its own planned address." />
-          <Button Content="Stop"
-                  Command="{Binding Plan.StopBulkCommand}"
-                  Visibility="{Binding Plan.IsBulkRunning, Converter={StaticResource BoolToVisible}}"
-                  ToolTip="Stops after the device in progress. That one is allowed to finish." />
+          <!-- The whole plan. Set static on all is the same sequence, over every row that is ready
+               and not yet Verified, one device at a time; the confirmation names each device, and
+               Stop takes effect between devices, never in the middle of one. Ping plan is a read. -->
+          <StackPanel Orientation="Horizontal"
+                      Visibility="{Binding Plan.HasRows, Converter={StaticResource BoolToVisible}}">
+            <Border Style="{StaticResource ToolbarSeparator}" Height="20" />
+            <TextBlock Style="{StaticResource Muted}" Text="Whole plan:" VerticalAlignment="Center"
+                       Margin="0,0,6,0" />
+            <Button Content="Set static on all..."
+                    Command="{Binding Plan.SetStaticAllCommand}"
+                    ToolTipService.ShowOnDisabled="True"
+                    ToolTip="Set static on every complete row not already Verified, one device at a time, after a confirmation that lists them. Each is written only at its own planned address. Disabled when no row is complete, or every complete row is already Verified." />
+            <Button Content="Stop"
+                    Command="{Binding Plan.StopBulkCommand}"
+                    Visibility="{Binding Plan.IsBulkRunning, Converter={StaticResource BoolToVisible}}"
+                    ToolTip="Stops after the device in progress. That one is allowed to finish." />
+            <Button Content="Ping plan"
+                    Command="{Binding Diagnostics.PingPlanCommand}"
+                    ToolTip="Pings every planned address, a few at a time, and fills in the Reach column. An answer proves something is at that address - not that it is the device the plan meant." />
+          </StackPanel>
 
           <TextBlock Style="{StaticResource Muted}"
                      Margin="12,0,0,0"
@@ -406,16 +443,6 @@
                      Foreground="{DynamicResource warn}"
                      Text="Writing to device..."
                      Visibility="{Binding Plan.IsCommissioning, Converter={StaticResource BoolToVisible}}" />
-
-          <Border Style="{StaticResource ToolbarSeparator}" Height="20" />
-
-          <!-- Reads. Nothing in this group writes to anything. -->
-          <Button Content="Ping plan"
-                  Command="{Binding Diagnostics.PingPlanCommand}"
-                  ToolTip="Pings every planned address, a few at a time, and fills in the Reach column. An answer proves something is at that address - not that it is the device the plan meant." />
-          <Button Content="Diagnose"
-                  Click="OnDiagnoseSelectedRow"
-                  ToolTip="Opens the Diagnostics tab on the selected device: ping, its own link and fault counters over EtherNet/IP, and which services it offers. Nothing is sent until you press a button there." />
 
           <TextBlock Style="{StaticResource Muted}"
                      Margin="12,0,0,0"
@@ -442,6 +469,7 @@
           </StackPanel>
         </Border>
 
+        <Grid>
         <DataGrid ItemsSource="{Binding Plan.Rows}"
                   SelectedItem="{Binding Plan.SelectedRow}"
                   AutoGenerateColumns="False"
@@ -561,6 +589,44 @@
             </ContextMenu>
           </DataGrid.ContextMenu>
         </DataGrid>
+
+        <!-- An empty plan, said in words. Every device action needs a row to act on, so instead of
+             a toolbar of disabled buttons the first thing on screen is how to get one - and the
+             three ways in are the three things this tool is for: watch a device ask, find what is
+             already on the network, or bring in a plan somebody already wrote. Nothing here sends
+             anything except Scan, which is the same button as on the Scan results tab. -->
+        <Border HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="560" Padding="20,16"
+                Background="{DynamicResource bg-2}" BorderBrush="{DynamicResource line}" BorderThickness="1"
+                CornerRadius="{DynamicResource corner}">
+          <Border.Style>
+            <Style TargetType="Border">
+              <Setter Property="Visibility" Value="Collapsed" />
+              <Style.Triggers>
+                <DataTrigger Binding="{Binding Plan.HasRows}" Value="False">
+                  <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+              </Style.Triggers>
+            </Style>
+          </Border.Style>
+          <StackPanel>
+            <TextBlock Text="No devices in the plan yet" FontSize="14" FontWeight="SemiBold" />
+            <TextBlock TextWrapping="Wrap" Margin="0,6,0,10" Style="{StaticResource Muted}"
+                       Text="The plan is the list of devices NetControl may serve an address to and set static. The buttons for those appear once there is a device in it. Three ways to add one:" />
+            <TextBlock TextWrapping="Wrap" Margin="0,0,0,4"
+                       Text="&#x2022;  Watch for requests: start the listener (Watch, above) and power up the device. It appears under Live requests; double-click it." />
+            <TextBlock TextWrapping="Wrap" Margin="0,0,0,4"
+                       Text="&#x2022;  Find what is already on the network: Scan, then double-click a result. It comes in at the address it already holds." />
+            <TextBlock TextWrapping="Wrap" Margin="0,0,0,12"
+                       Text="&#x2022;  Bring in a plan from a spreadsheet, or type a device in by hand." />
+            <WrapPanel>
+              <Button Content="Scan the network" Style="{StaticResource PrimaryButton}" Click="OnScanFromEmptyPlan"
+                      ToolTip="Opens Scan results and scans from the adapter selected at the top of the window." />
+              <Button Content="Import CSV..." Margin="8,0,0,0" Click="OnImportPlan" />
+              <Button Content="Add device" Margin="8,0,0,0" Command="{Binding Plan.AddDeviceCommand}" />
+            </WrapPanel>
+          </StackPanel>
+        </Border>
+        </Grid>
       </DockPanel>
       </Border>
 
@@ -680,19 +746,35 @@
              here does not need BOOTP - so the value of a scan is verification (did the device we
              served come up where we said), conflict detection (something is already on that
              address) and inventory. Pressing Scan transmits; nothing here writes to a device. -->
-        <TabItem Header="Scan results">
+        <TabItem Header="Scan results" x:Name="ScanTab">
           <DockPanel>
 
-            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="10,8,10,6">
-              <Button Content="Scan"
-                      MinWidth="90"
-                      Command="{Binding ScanCommand}"
-                      ToolTip="Asks every EtherNet/IP device on the selected adapter to identify itself. One broadcast on UDP/44818, nothing written to anything." />
-              <Button Content="Clear" Margin="8,0,0,0" Command="{Binding ClearScanCommand}" />
+            <!-- One button for "what is on this network". It always asks EtherNet/IP devices to
+                 identify themselves (one broadcast), and with the box ticked it also pings every
+                 address on the adapter's subnet and reads the ARP cache - which is what finds the
+                 PCs, switches, HMIs and devices that speak something else. The caption is made from
+                 the same plan the sweep would follow, so it says the subnet and the count before
+                 anybody presses anything; on an adapter whose subnet is too wide it says why not. -->
+            <StackPanel DockPanel.Dock="Top" Margin="10,8,10,6">
+              <WrapPanel Orientation="Horizontal">
+                <Button Content="Scan"
+                        MinWidth="90"
+                        Style="{StaticResource PrimaryButton}"
+                        Command="{Binding ScanCommand}"
+                        ToolTipService.ShowOnDisabled="True"
+                        ToolTip="Asks every EtherNet/IP device on the selected adapter to identify itself, and with the box ticked pings every address on its subnet. Nothing is connected to and nothing is written. Needs an adapter with an address selected at the top of the window." />
+                <CheckBox Margin="12,0,0,0"
+                          VerticalAlignment="Center"
+                          IsChecked="{Binding Scan.SweepSubnet}"
+                          IsEnabled="{Binding Scan.CanSweep}"
+                          Content="{Binding Scan.SweepCaption}"
+                          ToolTipService.ShowOnDisabled="True"
+                          ToolTip="{Binding Scan.SweepTooltip}" />
+                <Button Content="Clear" Margin="12,0,0,0" Command="{Binding ClearScanCommand}" />
+              </WrapPanel>
               <TextBlock Style="{StaticResource Muted}"
-                         Margin="16,0,0,0"
-                         VerticalAlignment="Center"
-                         TextTrimming="CharacterEllipsis"
+                         Margin="0,6,0,0"
+                         TextWrapping="Wrap"
                          Text="{Binding Scan.Status}" />
             </StackPanel>
 
@@ -811,6 +893,11 @@
                       </DataTemplate>
                     </GridViewColumn.CellTemplate>
                   </GridViewColumn>
+                  <!-- What the sweep heard back: a ping time, or "ARP only" for a device that is
+                       there and ignores ping. Blank when the sweep was not run. -->
+                  <GridViewColumn Header="Response" Width="80" DisplayMemberBinding="{Binding ResponseText}" />
+                  <!-- Blank for anything that did not identify itself over EtherNet/IP. The vendor
+                       column beside the MAC still says who made it. -->
                   <GridViewColumn Header="Product" Width="230" DisplayMemberBinding="{Binding ProductText}" />
                   <GridViewColumn Header="Rev" Width="56" DisplayMemberBinding="{Binding RevisionText}" />
                   <GridViewColumn Header="Serial" Width="90">

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Net;
 using CommunityToolkit.Mvvm.ComponentModel;
 using NetControl.Core;
 using NetControl.Core.Discovery;
@@ -6,12 +7,18 @@ using NetControl.Core.Discovery;
 namespace NetControl.App.ViewModels;
 
 /// <summary>
-/// One device a scan found, as a row.
+/// One address a scan found something at, as a row.
 ///
-/// <para>Every cell is text and every judgement is already made in Core - the row states what
-/// <see cref="DiscoveredDevice"/> found and adds nothing of its own. In particular the reason a
-/// device cannot be planned is <see cref="DiscoveredDevice.PlanningObstacle"/> verbatim, so the
-/// scan list, the plan grid and any later report cannot explain the same refusal differently.</para>
+/// <para>Two kinds of evidence can stand behind a row, and either or both may be present: an
+/// EtherNet/IP identity (<see cref="Device"/>) - which says what the device is - and a subnet sweep's
+/// ping-and-ARP result (<see cref="Host"/>) - which says something is there at all. They are joined
+/// by address, so a Rockwell adapter that answered both is one row with a product name and a ping
+/// time, and a switch that only answered ping is a row with no product name at all.</para>
+///
+/// <para>Every cell is text and every judgement is already made in Core - the row states what was
+/// found and adds nothing of its own. In particular the reason a device cannot be planned is Core's
+/// wording verbatim, so the scan list, the plan grid and any later report cannot explain the same
+/// refusal differently.</para>
 /// </summary>
 public sealed partial class ScanResultViewModel : ObservableObject
 {
@@ -34,6 +41,21 @@ public sealed partial class ScanResultViewModel : ObservableObject
     [ObservableProperty]
     private bool _planConflict;
 
+    /// <summary>
+    /// What the subnet sweep found at this address. Settable because the sweep finishes after the
+    /// identity scan, and joins onto rows that are already on screen.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ResponseText))]
+    [NotifyPropertyChangedFor(nameof(MacText))]
+    [NotifyPropertyChangedFor(nameof(VendorText))]
+    [NotifyPropertyChangedFor(nameof(CanBePlanned))]
+    [NotifyPropertyChangedFor(nameof(NeedsAttention))]
+    [NotifyPropertyChangedFor(nameof(Note))]
+    [NotifyPropertyChangedFor(nameof(Tooltip))]
+    private SweptHost? _host;
+
+    /// <summary>A device that answered the EtherNet/IP identity request.</summary>
     public ScanResultViewModel(DiscoveredDevice device)
     {
         ArgumentNullException.ThrowIfNull(device);
@@ -41,24 +63,58 @@ public sealed partial class ScanResultViewModel : ObservableObject
         Device = device;
     }
 
-    public DiscoveredDevice Device { get; }
+    /// <summary>Something the subnet sweep found that did not answer as EtherNet/IP.</summary>
+    public ScanResultViewModel(SweptHost host)
+    {
+        ArgumentNullException.ThrowIfNull(host);
 
-    public MacAddress Mac => Device.Mac;
+        _host = host;
+    }
 
-    /// <summary>What the device says its address is. This is what goes into the plan row.</summary>
-    public string AddressText => Device.Address.ToString();
+    /// <summary>The EtherNet/IP identity, or null when this address did not answer as EtherNet/IP.</summary>
+    public DiscoveredDevice? Device { get; }
 
-    public string ProductText => Device.ProductName.Length == 0 ? "(unnamed device)" : Device.ProductName;
+    /// <summary>True when the device identified itself over EtherNet/IP.</summary>
+    public bool IsEtherNetIp => Device is not null;
 
-    public string RevisionText => Device.Identity.Revision;
+    /// <summary>
+    /// The address the row is about: what an EtherNet/IP device says it holds, otherwise the
+    /// address that answered. This is what goes into a plan row.
+    /// </summary>
+    public IPAddress Address => Device?.Address ?? Host!.Address;
 
-    public string SerialText => Device.Identity.SerialText;
+    /// <summary>
+    /// The MAC to plan against. The identity scan's when it resolved one, otherwise the sweep's -
+    /// they came out of the same ARP cache, so where both exist they agree.
+    /// </summary>
+    public MacAddress Mac =>
+        Device is { CanBePlanned: true } ? Device.Mac
+        : Host is { CanBePlanned: true } ? Host.Mac
+        : Device?.Mac is { IsEmpty: false } mac ? mac
+        : Host?.Mac ?? MacAddress.Empty;
 
-    public string MacText => Device.Mac.IsEmpty ? string.Empty : Device.Mac.ToString();
+    public string AddressText => Address.ToString();
 
-    public string VendorText => Device.Vendor ?? string.Empty;
+    /// <summary>The product name an EtherNet/IP device gave. Blank for anything else - the tool does not guess.</summary>
+    public string ProductText => Device is null
+        ? string.Empty
+        : Device.ProductName.Length == 0 ? "(unnamed device)" : Device.ProductName;
 
-    public bool CanBePlanned => Device.CanBePlanned;
+    public string RevisionText => Device?.Identity.Revision ?? string.Empty;
+
+    public string SerialText => Device?.Identity.SerialText ?? string.Empty;
+
+    public string MacText => Mac.IsEmpty ? string.Empty : Mac.ToString();
+
+    public string VendorText => Device?.Vendor ?? Host?.Vendor ?? string.Empty;
+
+    /// <summary>The ping time, "no reply", or "ARP only". Blank when no sweep ran.</summary>
+    public string ResponseText => Host?.HowFound ?? string.Empty;
+
+    public bool CanBePlanned => Device?.CanBePlanned == true || Host?.CanBePlanned == true;
+
+    /// <summary>Why this row cannot become a plan row, in Core's words. Null when it can.</summary>
+    public string? PlanningObstacle => CanBePlanned ? null : Device?.PlanningObstacle ?? Host?.PlanningObstacle;
 
     /// <summary>
     /// The one thing worth saying about this row beyond its identity: it shares an address with
@@ -71,7 +127,7 @@ public sealed partial class ScanResultViewModel : ObservableObject
     {
         get
         {
-            if (Device.AddressIsContested)
+            if (Device?.AddressIsContested == true)
             {
                 return $"Another device also answered on {Device.Address}. One of them is misconfigured.";
             }
@@ -83,14 +139,14 @@ public sealed partial class ScanResultViewModel : ObservableObject
                 return plan;
             }
 
-            if (!Device.Identity.AddressMatchesSender)
+            if (Device is not null && !Device.Identity.AddressMatchesSender)
             {
                 return string.Create(
                     CultureInfo.InvariantCulture,
                     $"Answered from {Device.SenderAddress} but reports {Device.Address}.");
             }
 
-            if (Device.PlanningObstacle is { } obstacle)
+            if (PlanningObstacle is { } obstacle)
             {
                 return obstacle;
             }
@@ -100,15 +156,33 @@ public sealed partial class ScanResultViewModel : ObservableObject
     }
 
     /// <summary>Whether this row is worth colouring: something about it needs a person to look.</summary>
-    public bool NeedsAttention => Device.AddressIsContested || !Device.CanBePlanned || PlanConflict;
+    public bool NeedsAttention => Device?.AddressIsContested == true || !CanBePlanned || PlanConflict;
 
-    public string Tooltip =>
-        Note.Length > 0
-            ? Note
-            : $"{ProductText} at {AddressText}, revision {RevisionText}, serial {SerialText}.";
+    public string Tooltip
+    {
+        get
+        {
+            if (Note.Length > 0)
+            {
+                return Note;
+            }
+
+            if (Device is not null)
+            {
+                return $"{ProductText} at {AddressText}, revision {RevisionText}, serial {SerialText}.";
+            }
+
+            return Host!.Sentence + " It did not identify itself over EtherNet/IP - a PC, switch, camera, or a "
+                + "device on another protocol.";
+        }
+    }
 
     /// <summary>Re-reads <see cref="Note"/> after the plan changed underneath the list.</summary>
-    partial void OnIsAlreadyPlannedChanged(bool value) => OnPropertyChanged(nameof(Note));
+    partial void OnIsAlreadyPlannedChanged(bool value)
+    {
+        OnPropertyChanged(nameof(Note));
+        OnPropertyChanged(nameof(Tooltip));
+    }
 
     partial void OnPlanNoteChanged(string? value)
     {

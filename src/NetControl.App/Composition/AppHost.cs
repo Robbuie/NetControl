@@ -8,6 +8,7 @@ using NetControl.Core.Enip;
 using NetControl.Core.Interfaces;
 using NetControl.Core.Oui;
 using NetControl.Core.Persistence;
+using NetControl.Core.Reachability;
 
 namespace NetControl.App.Composition;
 
@@ -48,10 +49,17 @@ public sealed class AppHost : IDisposable
         // a test can hand the view model a discovery whose scanner never touches a socket. The
         // options are Core's defaults: one broadcast, a two-second window, and the same reply send
         // mode question the DHCP server has.
+        var arp = new ArpTable();
         var discovery = new DeviceDiscovery(
             new IdentityScanner(new ScanOptions { SendMode = ReplySendMode.PerSocketBind }),
-            new ArpTable(),
+            arp,
             OuiDatabase.Bundled);
+
+        // The other half of Scan: one echo request to every address on the adapter's subnet, then the
+        // same ARP table read. This is what finds the PCs, switches and non-EtherNet/IP devices the
+        // identity request cannot, and the devices that ignore ping. Core's defaults are the gentle
+        // ones; see SubnetSweepOptions.
+        var sweep = new SubnetSweep(new IcmpPinger(), arp, OuiDatabase.Bundled);
 
         ViewModel = new MainViewModel(
             dispatcher,
@@ -71,7 +79,8 @@ public sealed class AppHost : IDisposable
 
             // The TFTP tab's folder, vantage and probe server, remembered per PC in their own file.
             tftpSettings: TftpSettingsStore.Load(_trace),
-            saveTftpSettings: settings => TftpSettingsStore.Save(settings, _trace));
+            saveTftpSettings: settings => TftpSettingsStore.Save(settings, _trace),
+            sweep: sweep);
 
         // Raised on a background thread by design, so the view model marshals. Subscribing before
         // Start means the first inventory arrives through the same path as every later one.

@@ -35,7 +35,31 @@ public sealed partial class ScanResultsViewModel : ObservableObject
     /// </summary>
     [ObservableProperty]
     private string _status =
-        "No scan yet. Scan asks every EtherNet/IP device on the selected adapter to identify itself.";
+        "No scan yet. Scan asks every EtherNet/IP device on the selected adapter to identify itself, and "
+        + "can ping every address on the subnet to find everything else.";
+
+    /// <summary>
+    /// Whether Scan also sweeps the subnet: one echo request to every address, then a read of the
+    /// ARP cache. On by default, because "what is on this network" is what somebody pressing Scan
+    /// nearly always means - and it is ICMP only, paced, with no connection opened to anything.
+    /// </summary>
+    [ObservableProperty]
+    private bool _sweepSubnet = true;
+
+    /// <summary>False when this build has no sweep, or the selected adapter's subnet cannot be swept.</summary>
+    [ObservableProperty]
+    private bool _canSweep;
+
+    /// <summary>
+    /// The sweep checkbox's caption: which subnet, how many addresses, roughly how long - or why the
+    /// selected adapter cannot be swept. Made from the same plan the sweep itself would use.
+    /// </summary>
+    [ObservableProperty]
+    private string _sweepCaption = "Also ping every address on the subnet";
+
+    /// <summary>The longer explanation, for the checkbox's tooltip.</summary>
+    [ObservableProperty]
+    private string? _sweepTooltip;
 
     /// <summary>
     /// What the last scan had to say about the plan. <see cref="PlanConformanceReport.None"/> until
@@ -99,7 +123,7 @@ public sealed partial class ScanResultsViewModel : ObservableObject
 
         Rows.Clear();
 
-        foreach (DiscoveredDevice device in result.Devices)
+        foreach (DiscoveredDevice device in result.Devices.OrderBy(d => AddressKey(d.Address)))
         {
             Rows.Add(new ScanResultViewModel(device));
         }
@@ -112,6 +136,53 @@ public sealed partial class ScanResultsViewModel : ObservableObject
         ApplyConformance(PlanConformanceReport.None);
 
         OnPropertyChanged(nameof(HasResults));
+    }
+
+    /// <summary>
+    /// Joins a subnet sweep onto the rows the identity scan put on screen: an address that answered
+    /// both is one row carrying both, and everything that only the sweep found gets a row of its own.
+    /// The list ends up in address order as a number, so it reads top to bottom the way a panel does.
+    /// </summary>
+    public void ApplySweep(SubnetSweepResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        var rows = Rows.ToList();
+
+        foreach (SweptHost host in result.Hosts)
+        {
+            // Matched on the address the identity reply came from as well as the one it claims:
+            // the sweep pinged the address that is really answering, which is the sender.
+            ScanResultViewModel? existing = rows.FirstOrDefault(r => r.Device is { } d
+                && (d.Address.Equals(host.Address) || d.SenderAddress.Equals(host.Address)));
+
+            if (existing is not null)
+            {
+                existing.Host = host;
+            }
+            else
+            {
+                rows.Add(new ScanResultViewModel(host));
+            }
+        }
+
+        ScanResultViewModel? selected = SelectedRow;
+        Rows.Clear();
+
+        foreach (ScanResultViewModel row in rows.OrderBy(r => AddressKey(r.Address)))
+        {
+            Rows.Add(row);
+        }
+
+        SelectedRow = selected;
+        OnPropertyChanged(nameof(HasResults));
+    }
+
+    /// <summary>An IPv4 address as a number, so .2 sorts above .100.</summary>
+    private static uint AddressKey(System.Net.IPAddress address)
+    {
+        byte[] b = address.GetAddressBytes();
+        return b.Length == 4 ? ((uint)b[0] << 24) | ((uint)b[1] << 16) | ((uint)b[2] << 8) | b[3] : uint.MaxValue;
     }
 
     /// <summary>
@@ -141,7 +212,7 @@ public sealed partial class ScanResultsViewModel : ObservableObject
                 [.. report.Findings
                     .Where(f => f.Kind != PlanFindingKind.NotInPlan
                         && f.Address is not null
-                        && f.Address.Equals(row.Device.Address))
+                        && f.Address.Equals(row.Address))
                     .OrderByDescending(f => (int)f.Severity)];
 
             row.PlanNote = about.Length == 0 ? null : about[0].Message;

@@ -112,7 +112,7 @@ The common job: a panel full of new EtherNet/IP devices, all asking for an addre
 6. **Select a row and press Set static.** The address is written into the device, BOOTP/DHCP is
    turned off, and it is read back. When the readback agrees, the row says **Verified** and the
    address survives a power cycle. **Set static on all** does every ready row, one at a time.
-7. **Press Scan** to confirm what is on the segment and compare it against the plan.
+7. **Press Scan** to see everything on the segment and compare it against the plan.
 8. **File > Save as** to keep the project, and **File > Export commissioning report** for the
    customer.
 
@@ -125,7 +125,7 @@ From top to bottom:
 | **Title bar** | The menus: File, Listener, View, Tools and Help. |
 | **Interface bar** | The adapter you are working on, whether it is ready, and the Watch, Serve and Stop buttons. See [The interface bar](#the-interface-bar). |
 | **Status line** | The project file name (or "not saved to a file yet"), counts of planned devices, requests, served and unknown, the running version, and an update notice when there is one. |
-| **Plan** | The devices you intend to commission, and the buttons that act on them: Add device, Remove, Set static, Enable BOOTP/DHCP, Set static on all, Ping plan and Diagnose. |
+| **Plan** | The devices you intend to commission. **Add device** and **Import CSV...** are always there; once the plan has a row, the toolbar adds **Selected device:** Set static, Allow reset and **More** (Diagnose, Modbus, Device quirks, Enable BOOTP/DHCP), and **Whole plan:** Set static on all and Ping plan. An empty plan shows the three ways to add a device instead. |
 | **Tabs** | Live requests, Scan results, TFTP backup, Diagnostics, Modbus, Passive and PROFINET. |
 
 Almost everything has a tooltip. Hover over a button or a column header if you are not sure what it
@@ -192,7 +192,12 @@ A **red** row means the value could not be stored. An **amber** row stored fine 
 served yet - usually a MAC with no address so far. That is a normal state while you work, not an
 error.
 
-Right-click a row for **Device quirks...**, **Diagnose this device** and **Read Modbus registers**.
+Right-click a row, or use **More** on the toolbar, for **Device quirks...**, **Diagnose this device**
+and **Read Modbus registers**. **More** also holds **Enable BOOTP/DHCP**.
+
+**An empty plan** shows a short panel instead of the grid's buttons, because every one of them needs
+a device to act on. It offers the three ways to start: watch for requests, **Scan the network**, or
+**Import CSV...** / **Add device**.
 
 ### CSV plans
 
@@ -299,9 +304,24 @@ by itself from what the device actually did.
 The **Scan results** tab shows devices that already **have** an address - the opposite of Live
 requests, which shows devices **asking** for one.
 
-**Scan** sends one EtherNet/IP ListIdentity broadcast (UDP/44818) from the selected adapter and
-collects the replies for two seconds: address, product, revision, serial, MAC (from the ARP table)
-and vendor. Nothing is written to anything.
+**Scan** does two things from the selected adapter. Nothing is connected to and nothing is written.
+
+1. **EtherNet/IP identity.** One ListIdentity broadcast (UDP/44818), and two seconds of replies:
+   address, product, revision, serial, MAC (from the ARP table) and vendor. Only EtherNet/IP devices
+   answer this - Rockwell PLCs and I/O, PowerFlex drives and other EtherNet/IP gear.
+2. **Subnet sweep** (the tick box beside Scan, on by default). One ping to every address on the
+   adapter's subnet, then a read of the PC's ARP table. This finds **everything** with an address -
+   PCs, switches, HMIs, cameras, PROFINET and Modbus devices - like an office IP scanner. A device
+   set to ignore ping still shows up, marked **ARP only** in the Response column, because it has to
+   answer ARP. The caption says which subnet and how many addresses before you press anything.
+
+The two are joined by address: an EtherNet/IP device is one row with its product name and a ping
+time; anything else has a blank Product and its vendor from the MAC. The list is in address order.
+
+The sweep is gentle: at most about fifty pings a second, no TCP at all, and only the adapter's own
+subnet. It refuses a subnet wider than a /22 (1,022 addresses) - a mask that wide is usually the
+office network rather than the panel - and Scan still does the EtherNet/IP half. Each half writes its
+own row to the event log.
 
 - **The plan and the segment disagree** appears when the scan contradicts the plan: a planned
   address that something else is already sitting on, two devices answering on one planned address,
@@ -545,9 +565,15 @@ planned devices are ever served.
 may need a reset (tick **Allow reset if needed** and try again), or it may have said yes and kept its
 old address. Check the Quirks column.
 
+**A scan finds nothing.** Check the adapter selected at the top of the window is the one plugged into
+the panel, and that it has an address on the panel's subnet: devices answer to their own subnet, so
+a laptop on 10.0.0.x will not hear a panel on 192.168.1.x. Leave the subnet sweep ticked - without
+it, Scan only finds EtherNet/IP devices. Windows Firewall on a locked-down laptop can also drop the
+replies; the interface bar says when there is no rule for NetControl.
+
 **A device does not show up in a scan.** Some devices ignore broadcast discovery - tick that quirk
 on its row and the next scan asks its planned address directly. A device behind a router will not
-answer a broadcast at all.
+answer a broadcast at all, and the subnet sweep only covers the adapter's own subnet.
 
 **Passive or PROFINET says Npcap is missing.** Install Npcap from npcap.com, then press **Check
 again**.

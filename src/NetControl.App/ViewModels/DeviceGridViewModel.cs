@@ -57,6 +57,7 @@ public sealed partial class DeviceGridViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(EnableBootpCommand))]
     [NotifyCanExecuteChangedFor(nameof(EnableDhcpCommand))]
     [NotifyPropertyChangedFor(nameof(CanHandBack))]
+    [NotifyPropertyChangedFor(nameof(HasSelection))]
     private DeviceRowViewModel? _selectedRow;
 
     /// <summary>
@@ -119,6 +120,10 @@ public sealed partial class DeviceGridViewModel : ObservableObject
         _oui = oui;
         _commissioner = commissioner ?? new StaticIpCommissioner();
         _commissioner.Progress += OnCommissionProgress;
+
+        // The toolbar shows the per-device and whole-plan buttons only once there is a plan to act
+        // on; an empty plan gets a panel that says how to start one instead.
+        Rows.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasRows));
     }
 
     /// <summary>
@@ -137,6 +142,16 @@ public sealed partial class DeviceGridViewModel : ObservableObject
     public event EventHandler<CommissionProgressEventArgs>? CommissionProgress;
 
     public ObservableCollection<DeviceRowViewModel> Rows { get; } = [];
+
+    /// <summary>
+    /// Whether there is anything in the plan. Every button that acts on a device or on the whole plan
+    /// does nothing without one, so the window shows how to add devices instead of a row of buttons
+    /// that are all greyed out for the same reason.
+    /// </summary>
+    public bool HasRows => Rows.Count > 0;
+
+    /// <summary>Whether a row is selected - which every "this device" action needs.</summary>
+    public bool HasSelection => SelectedRow is not null;
 
     /// <summary>
     /// The EtherNet/IP port a commissioning run talks to. Almost always 44818; settable for the
