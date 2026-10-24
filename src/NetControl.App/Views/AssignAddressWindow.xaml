@@ -1,0 +1,66 @@
+<Window x:Class="NetControl.App.Views.AssignAddressWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Assign IP address"
+        SizeToContent="Height"
+        Width="520"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner"
+        Style="{StaticResource ChromeDialog}">
+
+  <!-- The Rockwell BOOTP/DHCP tool's "New entry" box, plus its "Disable BOOTP/DHCP" button as a
+       tick that is on by default. Rules live in Core (AddressAssignment.TryCreate): every problem is
+       listed at once and nothing is sent until all of them are fixed. -->
+
+  <StackPanel Margin="18,14,18,14">
+    <TextBlock x:Name="DeviceText" Style="{StaticResource PanelHead}" TextWrapping="Wrap" />
+    <TextBlock x:Name="AdapterText" Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,2,0,12" />
+
+    <Border Style="{StaticResource Card}" Padding="14,12">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto" />
+          <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Grid.Column="0" Text="IP address" Style="{StaticResource PanelHead}"
+                   VerticalAlignment="Center" Margin="0,0,14,8" />
+        <TextBox Grid.Row="0" Grid.Column="1" x:Name="IpBox" FontFamily="{DynamicResource mono}" Margin="0,0,0,8" />
+
+        <TextBlock Grid.Row="1" Grid.Column="0" Text="Subnet mask" Style="{StaticResource PanelHead}"
+                   VerticalAlignment="Center" Margin="0,0,14,8" />
+        <TextBox Grid.Row="1" Grid.Column="1" x:Name="MaskBox" FontFamily="{DynamicResource mono}" Margin="0,0,0,8" />
+
+        <TextBlock Grid.Row="2" Grid.Column="0" Text="Gateway" Style="{StaticResource PanelHead}"
+                   VerticalAlignment="Center" Margin="0,0,14,0" />
+        <TextBox Grid.Row="2" Grid.Column="1" x:Name="GatewayBox" FontFamily="{DynamicResource mono}" />
+        <TextBlock Grid.Row="3" Grid.Column="1" Style="{StaticResource Muted}" Margin="0,2,0,0" TextWrapping="Wrap"
+                   Text="Mask and gateway start as this PC's. Blank gateway: none." />
+      </Grid>
+    </Border>
+
+    <CheckBox x:Name="MakeStaticBox" IsChecked="True" Margin="0,12,0,0">
+      <TextBlock TextWrapping="Wrap"
+                 Text="Disable BOOTP/DHCP once it has the address, so it keeps it after a power cycle" />
+    </CheckBox>
+    <TextBlock Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="20,2,0,0"
+               Text="Serves the address, waits for the device to come up on it, then writes it in over EtherNet/IP and reads it back. Untick to serve it only." />
+
+    <Border x:Name="ProblemPanel" Style="{StaticResource FaultNotice}" Margin="0,10,0,0" Visibility="Collapsed">
+      <TextBlock x:Name="ProblemText" Style="{StaticResource FaultText}" TextWrapping="Wrap" />
+    </Border>
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+      <Button Content="Assign" Style="{StaticResource PrimaryButton}" IsDefault="True" MinWidth="80"
+              Margin="0,0,8,0" Click="OnAssign" />
+      <Button Content="Cancel" IsCancel="True" MinWidth="80" />
+    </StackPanel>
+  </StackPanel>
+</Window>

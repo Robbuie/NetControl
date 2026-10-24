@@ -49,6 +49,13 @@ public sealed record NicInfo(
     public NicAddressList ExtraAddresses { get; init; } = NicAddressList.Empty;
 
     /// <summary>
+    /// The adapter's IPv4 default gateway, or null when it has none - the usual case on a laptop
+    /// patched straight into a panel with a static address. Only ever offered as a starting value
+    /// for an address somebody is about to give a device; nothing serves or binds on it.
+    /// </summary>
+    public IPAddress? Gateway { get; init; }
+
+    /// <summary>
     /// This adapter once per usable address: itself, then a copy carrying each extra address as its
     /// <see cref="IPv4"/> and <see cref="Mask"/>. Same index, same name - it is the same port - so a
     /// scan run from a copy goes out of the same cable, sourced from the address that belongs to the

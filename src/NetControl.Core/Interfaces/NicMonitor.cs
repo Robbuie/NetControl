@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 
@@ -204,11 +205,31 @@ public sealed class NicMonitor : INicInventory, IDisposable
                 speed)
             {
                 ExtraAddresses = extras.Count == 0 ? NicAddressList.Empty : new NicAddressList(extras),
+                Gateway = FirstGateway(properties),
             });
         }
 
         list.Sort((a, b) => a.Index.CompareTo(b.Index));
         return list;
+    }
+
+    /// <summary>
+    /// The first real IPv4 gateway on the adapter. 0.0.0.0 is what Windows reports for "none" on
+    /// some drivers rather than an empty list, and offering that as a gateway would be worse than
+    /// offering nothing.
+    /// </summary>
+    private static IPAddress? FirstGateway(IPInterfaceProperties properties)
+    {
+        try
+        {
+            return properties.GatewayAddresses
+                .Select(g => g.Address)
+                .FirstOrDefault(a => a.AddressFamily == AddressFamily.InterNetwork && !a.Equals(IPAddress.Any));
+        }
+        catch (NetworkInformationException)
+        {
+            return null;
+        }
     }
 
     public void Dispose()

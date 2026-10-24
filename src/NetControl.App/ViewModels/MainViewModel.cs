@@ -1633,6 +1633,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             Plan.NoteServed(e.Mac);
         }
 
+        NoteAssignReply(e);
         Tftp.NoteDhcpReply(e);
     });
 
@@ -1656,6 +1657,7 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         RunState = _server.State;
         InterfaceBar.ApplyListener(RunState, _server.ActiveOptions?.Mode ?? DhcpServerMode.Watch, _server.StopReason);
         Tftp.NoteDhcpState(RunState, _server.ActiveOptions?.Mode ?? DhcpServerMode.Watch);
+        CancelAssignWait();
 
         if (RunState is ServerRunState.Faulted && _server.StopReason is { } reason)
         {

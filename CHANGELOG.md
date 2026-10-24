@@ -4,6 +4,19 @@ Newest first. The release workflow copies a version's section onto its GitHub re
 write it for the person deciding whether to install the update. The heading has to start
 `## <version>` for that to find it.
 
+## 0.12.0 - Assign IP: serve an address and disable BOOTP/DHCP in one step
+
+- **Assign IP, like the Rockwell BOOTP/DHCP tool.** Double-click a device in **Live requests**, type
+  an address, and press Assign. The subnet mask and gateway are filled in from your laptop's adapter.
+  NetControl plans the device, serves it the address, waits for it to come up, then turns BOOTP/DHCP
+  off over EtherNet/IP and reads the result back - one step instead of plan, arm, serve, select and
+  Set static. Untick **Disable BOOTP/DHCP** to serve the address only.
+- Works for devices in DHCP mode as well as BOOTP: it waits for the DHCP acknowledgement, not just
+  the offer.
+- Refuses before sending anything if your laptop has no address on the device's subnet, since it
+  could not reach the device to turn BOOTP/DHCP off.
+- The plan's **Set static** button now says what it does: **Set static (disable BOOTP/DHCP)**.
+
 ## 0.11.0 - scan more than one subnet
 
 - **Scan more than one subnet.** An adapter with a second IP address (two subnets on one panel

@@ -412,7 +412,7 @@ public partial class MainWindow : Window
     /// </remarks>
     private void OnLogRowDoubleClicked(object sender, MouseButtonEventArgs e)
     {
-        Plan(sender);
+        Assign(sender);
 
         // A double-click on a row is not also a request to do whatever the ListView would have
         // done with it.
@@ -420,6 +420,44 @@ public partial class MainWindow : Window
     }
 
     private void OnAddToPlan(object sender, RoutedEventArgs e) => Plan(sender);
+
+    private void OnAssignAddress(object sender, RoutedEventArgs e) => Assign(sender);
+
+    /// <summary>
+    /// The Rockwell-tool gesture: type an address for the device that asked, and it is served and -
+    /// unless unticked - made permanent with BOOTP/DHCP turned off. The dialog is here because it is
+    /// a window; everything it sets in motion is <see cref="MainViewModel.AssignAsync"/>.
+    /// </summary>
+    private async void Assign(object sender)
+    {
+        if (ViewModel is not { } viewModel || EntryFrom(sender) is not { } entry)
+        {
+            return;
+        }
+
+        if (viewModel.AssignDefaultsFor(entry) is not { } defaults)
+        {
+            return;
+        }
+
+        var dialog = new AssignAddressWindow(defaults) { Owner = this };
+
+        if (dialog.ShowDialog() != true || dialog.Result is not { } assignment)
+        {
+            return;
+        }
+
+        try
+        {
+            await viewModel.AssignAsync(defaults.Mac, assignment);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // async void: an exception escaping here would take the whole application down, on a
+            // laptop that is half way through commissioning a panel.
+            MessageBox.Show(this, ex.Message, "Assign IP address", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
 
     /// <summary>
     /// The same gesture on a scan result. Unlike a log row this one arrives with an address on it -

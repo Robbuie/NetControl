@@ -373,7 +373,7 @@
             <TextBlock Style="{StaticResource Muted}" Text="Selected device:" VerticalAlignment="Center"
                        Margin="0,0,6,0" />
 
-            <Button Content="Set static"
+            <Button Content="Set static (disable BOOTP/DHCP)"
                     MinWidth="96"
                     Command="{Binding Plan.SetStaticCommand}"
                     ToolTipService.ShowOnDisabled="True"
@@ -672,6 +672,8 @@
                    goes through the ordinary component connector and behaves. -->
               <ListView.Resources>
                 <ContextMenu x:Key="LogRowMenu">
+                  <MenuItem Header="_Assign IP address..." Click="OnAssignAddress" FontWeight="Bold"
+                            ToolTip="Type an address for this device. It is served and, unless you untick it, BOOTP/DHCP is then turned off so it keeps it - like the Rockwell tool's Disable BOOTP/DHCP." />
                   <MenuItem Header="_Add to plan" Click="OnAddToPlan"
                             ToolTip="Adds this MAC to the plan, ready for you to type its address. Nothing is sent." />
                 </ContextMenu>
@@ -684,9 +686,9 @@
                   <Setter Property="ToolTip" Value="{Binding Tooltip}" />
                   <Setter Property="HorizontalContentAlignment" Value="Stretch" />
 
-                  <!-- Watch a device ask, double-click it, and its MAC is in the plan - served on its
-                       next retransmit, once you have typed an address for it. Adding a row transmits
-                       nothing by itself; Serve mode still has to be armed and started separately. -->
+                  <!-- Watch a device ask, double-click it, type an address: it is served on its next
+                       retransmit and, by default, BOOTP/DHCP is then turned off - the Rockwell tool's
+                       workflow. Nothing is sent until Assign is pressed in that dialog. -->
                   <EventSetter Event="MouseDoubleClick" Handler="OnLogRowDoubleClicked" />
 
                   <!-- One menu instance shared by every row, so the handler resolves the row it was

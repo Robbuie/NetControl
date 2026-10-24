@@ -940,6 +940,13 @@ for every `Plan.`/`Scan.` binding path against the view model sources.
 
 ### Pick up here
 
+**0.12.0 added Assign IP** (`MainViewModel.Assign.cs`, `AssignAddressWindow`, `Core/Commissioning/AddressAssignment`
+and `EnipPortWaiter`): double-click a live request, type an address, and it is planned, served, waited for on
+TCP/44818 and then Set static - the Rockwell tool's two buttons as one. It came from a user who tried an EN2T
+in DHCP mode and only found Enable BOOTP/DHCP. `MainViewModelAssignTests` drives it end to end on loopback
+(relayed request, so the reply is unicast). **It has not been run against a real EN2T yet** - do that first:
+DHCP mode, double-click, assign, power-cycle, check it comes back on the same address.
+
 **Everything in `src/` compiles and all 590 tests pass.** The hand-back, the plan-versus-scan
 comparison and the diagnostic log were all written in a session with no SDK and needed no fixing
 once one was available - the only thing that had to be corrected was an XML comment in

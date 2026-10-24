@@ -354,14 +354,31 @@ public sealed partial class DeviceGridViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanSetStatic))]
     private async Task SetStaticAsync(CancellationToken cancellationToken)
     {
-        if (SelectedRow is not { } row || _project is null || !row.TryBuild(out DeviceRecord? device))
+        if (SelectedRow is { } row)
         {
-            return;
+            await CommissionRowAsync(row, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Set static on one given row, and the result - for a caller that has just served the device and
+    /// needs to know how it went rather than read it off the grid. Exactly the path the button takes,
+    /// so there is still only one way a row becomes Verified. Null when nothing was attempted: no
+    /// project, a row that is not complete, or another device already being commissioned.
+    /// </summary>
+    public async Task<CommissionResult?> CommissionRowAsync(
+        DeviceRowViewModel row, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(row);
+
+        if (IsCommissioning || _project is null || !row.TryBuild(out DeviceRecord? device))
+        {
+            return null;
         }
 
         if (BuildStaticRequest(device!) is not { } request)
         {
-            return;
+            return null;
         }
 
         IPAddress ip = request.DeviceAddress;
@@ -378,11 +395,13 @@ public sealed partial class DeviceGridViewModel : ObservableObject
             CommissionResult result = await _commissioner.RunAsync(request, cancellationToken);
 
             Apply(row, result);
+            return result;
         }
         catch (OperationCanceledException)
         {
             // The window is closing mid-run. The device is in whatever state it reached, and the
             // steps already recorded say which - there is nothing honest to add here.
+            return null;
         }
         finally
         {

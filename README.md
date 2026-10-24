@@ -12,6 +12,7 @@ This guide is also inside the application: **Help > User guide**, or press **F1*
 
 - [Safety first](#safety-first)
 - [Installing and updating](#installing-and-updating)
+- [Quick start: assign an IP like the Rockwell tool](#quick-start-assign-an-ip-like-the-rockwell-tool)
 - [Quick start: commissioning a panel](#quick-start-commissioning-a-panel)
 - [The main window](#the-main-window)
 - [The interface bar](#the-interface-bar)
@@ -93,6 +94,29 @@ an answer.
   dialog says which.
 
 To turn the update check off on a machine, see [Settings and where files go](#settings-and-where-files-go).
+
+## Quick start: assign an IP like the Rockwell tool
+
+One device, asking for an address over BOOTP or DHCP, and you want it to keep the one you give it.
+
+1. **Patch the laptop into the device's network** and give the laptop's adapter a static address on
+   that subnet.
+2. **Pick that adapter** in the interface bar and press **Watch**. The device's requests appear in
+   **Live requests**.
+3. **Double-click the request** (or right-click > **Assign IP address...**). Type the address. The
+   subnet mask and gateway are filled in from your laptop's adapter; change them if the drawing says
+   otherwise, or blank the gateway for none.
+4. Leave **Disable BOOTP/DHCP** ticked and press **Assign**. NetControl adds the device to the plan,
+   serves it the address on its next request, waits for it to come up on that address, then writes
+   it in over EtherNet/IP with BOOTP/DHCP turned off and reads it back. The live log narrates each
+   step; when the row says **Verified**, the device keeps the address after a power cycle.
+
+A device in DHCP mode can wait up to a minute between requests. Power-cycling it makes it ask
+straight away. **Stop** cancels the wait. If Serve was not already running, it is stopped again
+afterwards (and Watch is restarted if that is what you were doing).
+
+Untick **Disable BOOTP/DHCP** to serve the address only - the device then asks again at its next
+power cycle, which is what the Rockwell tool does before you press its Disable BOOTP/DHCP button.
 
 ## Quick start: commissioning a panel
 
@@ -225,8 +249,10 @@ message type, MAC, the device's name if it is in the plan, vendor, the adapter i
 nothing.**
 
 - Tick **Only devices that are not in the plan** to see just the strangers.
-- **Double-click** a row, or right-click > **Add to plan**, to plan that device. If it is already in
-  the plan, its row is selected instead.
+- **Double-click** a row, or right-click > **Assign IP address...**, to give that device an address and
+  (by default) turn BOOTP/DHCP off - see [the quick start](#quick-start-assign-an-ip-like-the-rockwell-tool).
+- Right-click > **Add to plan** plans the device without sending anything. If it is already in the
+  plan, its row is selected instead.
 - **Clear** empties the list.
 
 ### Serve
@@ -254,7 +280,7 @@ is still a BOOTP client. To make it permanent, use [Set static](#set-static-and-
 
 ### Set static
 
-Select a plan row and press **Set static**. Over EtherNet/IP (CIP) NetControl:
+Select a plan row and press **Set static (disable BOOTP/DHCP)**. Over EtherNet/IP (CIP) NetControl:
 
 1. Reads the device's Configuration Capability. If its address is set by rotary or DIP switches, it
    says so and **writes nothing**.
