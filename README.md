@@ -130,7 +130,8 @@ The common job: a panel full of new EtherNet/IP devices, all asking for an addre
    and vendor. Nothing is transmitted.
 4. **Double-click a request** (or right-click > **Add to plan**). The device lands in the plan with
    its MAC and vendor filled in. **Type its address** off the drawing, plus mask, gateway and a role
-   if you like. Or import the whole plan from a CSV with **File > Import plan from CSV**.
+   if you like. Or import the whole plan with **File > Import plan**: a CSV, or one sheet of the
+   project IP workbook - see [Project IP workbooks](#project-ip-workbooks).
 5. **Tick Arm serve, then press Serve.** Each planned device gets its address on its next request.
    Its state moves from Planned to Seen to Served.
 6. **Select a row and press Set static.** The address is written into the device, BOOTP/DHCP is
@@ -149,7 +150,7 @@ From top to bottom:
 | **Title bar** | The menus: File, Listener, View, Tools and Help. |
 | **Interface bar** | The adapter you are working on, whether it is ready, and the Watch, Serve and Stop buttons. See [The interface bar](#the-interface-bar). |
 | **Status line** | The project file name (or "not saved to a file yet"), counts of planned devices, requests, served and unknown, the running version, and an update notice when there is one. |
-| **Plan** | The devices you intend to commission. **Add device** and **Import CSV...** are always there; once the plan has a row, the toolbar adds **Selected device:** Set static, Allow reset and **More** (Diagnose, Modbus, Device quirks, Enable BOOTP/DHCP), and **Whole plan:** Set static on all and Ping plan. An empty plan shows the three ways to add a device instead. |
+| **Plan** | The devices you intend to commission. **Add device** and **Import plan...** are always there; once the plan has a row, the toolbar adds **Selected device:** Set static, Allow reset and **More** (Diagnose, Modbus, Device quirks, Enable BOOTP/DHCP), and **Whole plan:** Set static on all and Ping plan. An empty plan shows the three ways to add a device instead. |
 | **Tabs** | Live requests, Scan results, TFTP backup, Diagnostics, Modbus, Passive and PROFINET. |
 
 Almost everything has a tooltip. Hover over a button or a column header if you are not sure what it
@@ -191,7 +192,7 @@ status line says "not saved to a file yet" until then.
 | **New project** | Starts an empty project. |
 | **Open project...** | Opens a `.netcproj`. Files from older versions are upgraded; a file from a newer version is refused with a note to update. |
 | **Save as...** | Copies the whole project - plan, assignments and event log - to a file and keeps working there. Never overwrites an existing file. |
-| **Import plan from CSV...** | Checks the whole file first. If anything is wrong, nothing is imported and every problem is listed with its line number. |
+| **Import plan (CSV or Excel workbook)...** | A plan CSV, or one sheet of the project IP workbook. Checks the whole file first. If anything is wrong, nothing is imported and every problem is listed with its line number. |
 | **Export plan to CSV...** | The plan only. What was served and verified stays in the project's record. |
 | **Export commissioning report...** | See [The commissioning report and the record](#the-commissioning-report-and-the-record). |
 
@@ -202,7 +203,7 @@ still on screen, for example `'192.168.1.999' is not an IPv4 IP address`.
 
 | Column | Meaning |
 |---|---|
-| **MAC** | The device's hardware address - the key the plan is matched on. |
+| **MAC** | The device's hardware address - the key the plan is matched on. Blank on a row awaiting its MAC (see [Project IP workbooks](#project-ip-workbooks)). |
 | **Planned IP** | The address it should have. NetControl never invents one: it comes off your drawing. |
 | **Subnet mask / Gateway** | Sent with the address. Leave the gateway blank if there is none. |
 | **Host name, Panel, Role** | Your names for it. The Device column in the log uses Role, then Host name, then Panel. |
@@ -221,7 +222,7 @@ and **Read Modbus registers**. **More** also holds **Enable BOOTP/DHCP**.
 
 **An empty plan** shows a short panel instead of the grid's buttons, because every one of them needs
 a device to act on. It offers the three ways to start: watch for requests, **Scan the network**, or
-**Import CSV...** / **Add device**.
+**Import plan...** / **Add device**.
 
 ### CSV plans
 
@@ -237,7 +238,58 @@ Mac,Ip,Mask,Gateway,HostName,PanelRef,Role,Notes
 00:1D:9C:AB:CD:EF,192.168.1.51,255.255.255.0,192.168.1.1,vfd-01,CP-3,Conveyor drive,"drive, panel 3"
 ```
 
-Re-importing a CSV keeps each device's quirks.
+Re-importing a CSV keeps each device's quirks. The `Mac` column may be left out, or a cell left
+blank, as long as the row has an address: the row is then awaiting its MAC, exactly like a row from
+a workbook.
+
+### Project IP workbooks
+
+**File > Import plan** also reads the project IP workbook (`.xlsx`) - the one with a tab per cell
+(SI100, SF101, SF102...) listing each switch port's device, IP and IP2. **Import one cell at a time,
+one project per cell**: the cells reuse the same plant addresses, so two of them in one plan would
+be nothing but duplicates.
+
+1. Pick the workbook. NetControl lists the sheets that hold devices - the ones the workbook's
+   **Formula Builder** tab includes, or, without one, any visible sheet with a header row naming a
+   Device (or Name) column and an IP (or **Final IP1**) column. When some of those are port maps
+   (they have a Switch or Port column), only the port maps are listed: the per-subnet **Net** tabs
+   and the **IP List** are views of every cell at once, and hidden tabs are never listed.
+2. Pick the **sheet**, and give each subnet on it a **mask** and **gateway** (255.255.255.0 and no
+   gateway to start with).
+3. Press **Import**. Every row is checked first, exactly like a CSV; if anything is wrong nothing is
+   imported, and every problem is in the log with its **row number on that sheet**. The usual one is
+   two devices on one address - fix it in the workbook, save, and import again.
+
+What becomes a plan row: every row with an address in the IP column, plus a second row named
+`<device> (IP2)` for each IP2 (a second port is a second MAC). Rows with no address - spares - are
+skipped; the same name at the same address twice is merged. **Panel** is filled in as
+`<sheet> <switch> port <n>`, with the **Dev Port** in brackets when there is one
+(`SF101 Direct (Motion)`), and **Notes** from the Notes column. Importing the same sheet again
+updates the rows by address and keeps any MAC filled in since.
+
+On a Rev3 workbook (Final IP1/IP2, Temp IP1/IP2, IP2 Type):
+
+- **Temp before Final.** A Temp address is only filled while the device is running on it, so when
+  there is one it is the address planned, and the note says `Temp address - final <address>`. After
+  cutover, clear the Temp cells and import the sheet again to move the plan to the finals.
+- **Same-port IP2s are not rows.** When IP2 Type is *Same port - Slave* or *Same port - Other*, the
+  IP2 is a second address on the same MAC (a fieldbus slave), and BOOTP gives one MAC one address.
+  It is recorded in the main row's note (`Also <address> on the same port`) instead. The import does
+  not duplicate-check it - the workbook's own red cells do. *Port 2 - Motion* / *Port 2 - Other*
+  IP2s are their own rows as before.
+
+**A workbook has no MACs, so every row arrives awaiting its MAC.** It is amber, and is never served
+until it has one. Fill them in as the devices turn up - **nothing is ever filled in without you
+choosing it**, because a wrong MAC hands that row's address to the wrong device:
+
+- **From Live requests:** right-click a request from a new device > **Assign to awaiting plan
+  row...**, and pick which row it is.
+- **From Scan results:** a device already sitting at a row's planned address (a switch, anything
+  set up before) shows "awaiting its MAC" in its note. Right-click it > **Fill in MAC on its plan
+  row**, or **Fill in all awaiting MACs from the scan...** (also on the Tools menu), which lists every
+  pairing before changing anything.
+- **Assign IP** on a request, with the address of a row awaiting its MAC, fills that row in.
+- Or type the MAC into the row.
 
 ## Watching and serving BOOTP/DHCP
 

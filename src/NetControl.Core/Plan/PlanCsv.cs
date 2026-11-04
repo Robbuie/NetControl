@@ -20,8 +20,12 @@ namespace NetControl.Core.Plan;
 /// spellings a person would type are accepted - because the point of import is to take the
 /// spreadsheet somebody already has. Columns this does not recognise are ignored rather than
 /// refused, for the same reason: a plan sheet also carries part numbers and PO references, and
-/// refusing a file over a column the tool does not need would be pedantry. A missing
-/// <c>Mac</c> column is refused, because there is no plan without it.</para>
+/// refusing a file over a column the tool does not need would be pedantry.</para>
+///
+/// <para><b>The Mac column is not required, but an address is.</b> A plan taken off the drawings
+/// has no MACs yet - they are filled in later from the request log or a scan (PLAN-IMPORT.md F1) -
+/// and each row is then matched by its planned address. A file with neither column has nothing to
+/// match any device by, and is refused.</para>
 /// </summary>
 public static class PlanCsv
 {
@@ -113,7 +117,7 @@ public static class PlanCsv
     }
 
     /// <summary>Reads a plan file into rows of text. See the type's remarks for what this does not do.</summary>
-    /// <exception cref="PlanCsvException">The file has no header, no MAC column, or a duplicated column.</exception>
+    /// <exception cref="PlanCsvException">The file has no header, neither a MAC nor an IP column, or a duplicated column.</exception>
     public static IReadOnlyList<PlanCsvRow> Read(TextReader reader)
     {
         ArgumentNullException.ThrowIfNull(reader);
@@ -183,13 +187,14 @@ public static class PlanCsv
             seen[columns[i]] = name;
         }
 
-        if (!seen.ContainsKey(PlanCsvColumn.Mac))
+        if (!seen.ContainsKey(PlanCsvColumn.Mac) && !seen.ContainsKey(PlanCsvColumn.Ip))
         {
             throw new PlanCsvException(
-                "That file has no MAC column, so there is nothing to key the plan on. Its header reads: "
-                + string.Join(", ", header.Fields.Select(f => $"'{f}'")) + ".")
+                "That file has neither a MAC nor an IP column, so there is nothing to match a device by. "
+                + "Its header reads: " + string.Join(", ", header.Fields.Select(f => $"'{f}'")) + ".")
             {
-                Remediation = "Add a Mac column. The columns this reads are " + string.Join(", ", Header) + ".",
+                Remediation = "Add a Mac column, an Ip column, or both. The columns this reads are "
+                    + string.Join(", ", Header) + ".",
             };
         }
 

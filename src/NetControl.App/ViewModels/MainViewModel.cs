@@ -423,8 +423,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     /// once, and doing that underneath a running server is not an edit, it is a different job - the
     /// A6 rule. Adding one device while serving stays allowed, and is the normal workflow.</para>
     ///
-    /// <para>Rows are matched to the plan by MAC and replace what is there, so re-importing a
-    /// corrected file corrects the plan rather than doubling it. The vendor is resolved from the
+    /// <para>Rows are matched to the plan by MAC - or, for a row with no MAC yet, by its planned
+    /// address - and replace what is there, so re-importing a corrected file corrects the plan rather
+    /// than doubling it, and keeps any MAC filled in since. The vendor is resolved from the
     /// MAC here and stored, which is why the file has no vendor column.</para>
     /// </summary>
     public void ImportPlan(string path)
@@ -453,20 +454,94 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return;
         }
 
-        PlanValidationResult result = PlanValidation.Validate(rows, ImportContext());
+        ImportRows(rows, ImportContext(), path, source: null);
+    }
+
+    /// <summary>
+    /// Reads a project IP workbook so the import dialog can offer its sheets. Null, with the reason
+    /// on screen, when the file is not one - see <see cref="PlanWorkbook"/>.
+    /// </summary>
+    public PlanWorkbook? ReadWorkbook(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        if (!RequireStopped("importing a plan"))
+        {
+            return null;
+        }
+
+        try
+        {
+            return PlanWorkbook.Read(path);
+        }
+        catch (PlanWorkbookException ex)
+        {
+            SetError(ex.Message, ex.Remediation);
+            RecordPlanFile(EventSeverity.Warn, $"Plan import refused: {ex.Message}", path, imported: 0);
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            SetError($"Could not read '{path}': {ex.Message}", "Check the file is there and that you can open it.");
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Imports one sheet of a project IP workbook as the plan (PLAN-IMPORT.md F2). Every row arrives
+    /// awaiting its MAC, and the same rule as a CSV applies: nothing is imported if anything is
+    /// wrong, and every problem is listed with the sheet row it is on.
+    ///
+    /// <para><b>The adapter's subnet is not checked here</b>, though a CSV import checks it. A cell's
+    /// sheet plans several networks at once - SF101 uses 120.15.106, 192.168.1, 192.168.2 and
+    /// 192.168.5 - and no one adapter is on all of them, so the check would refuse every real
+    /// workbook. This machine's own address is still refused.</para>
+    /// </summary>
+    /// <param name="path">For the record and the log only - the workbook has already been read.</param>
+    /// <param name="sheet">The one sheet to import.</param>
+    /// <param name="subnets">Mask and gateway per subnet, keyed as <see cref="PlanSheet.Subnets"/>.</param>
+    public void ImportWorkbookSheet(
+        string path,
+        PlanSheet sheet,
+        IReadOnlyDictionary<string, PlanSubnetSettings> subnets)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(sheet);
+        ArgumentNullException.ThrowIfNull(subnets);
+
+        if (!RequireStopped("importing a plan"))
+        {
+            return;
+        }
+
+        ImportRows(sheet.ToRows(subnets), ImportContext() with { AdapterSubnet = null }, path, sheet.Name);
+    }
+
+    /// <summary>
+    /// The half of an import both file types share: validate everything, then write all of it or
+    /// none of it. <paramref name="source"/> names the workbook sheet, so that "line 16" in a
+    /// problem reads as row 16 of SF101; it is null for a CSV, whose lines are lines.
+    /// </summary>
+    private void ImportRows(IReadOnlyList<PlanCsvRow> rows, PlanImportContext context, string path, string? source)
+    {
+        PlanValidationResult result = PlanValidation.Validate(rows, context);
+        string from = source is null ? path : $"sheet {source} of {path}";
 
         if (!result.IsValid)
         {
             SetError(
                 result.Summary,
-                "The plan has not been changed. Every problem is listed in the log, with the line it is on.");
+                source is null
+                    ? "The plan has not been changed. Every problem is listed in the log, with the line it is on."
+                    : $"The plan has not been changed. Every problem is listed in the log; each \"line\" is a row "
+                        + $"number on the {source} sheet. Fix them in the workbook, save it, and import again.");
 
             foreach (PlanProblem problem in result.Problems)
             {
-                Log.AddNotice($"Import: {problem}");
+                Log.AddNotice(source is null ? $"Import: {problem}" : $"Import {source}: {problem}");
             }
 
-            RecordPlanFile(EventSeverity.Warn, $"Plan import refused: {result.Summary}", path, imported: 0);
+            RecordPlanFile(EventSeverity.Warn, $"Plan import refused ({from}): {result.Summary}", path, imported: 0);
             return;
         }
 
@@ -483,8 +558,19 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         ClearError();
         Plan.Reload();
         ReloadPlan();
-        Log.AddNotice($"Imported {result.Devices.Count} device(s) from {path}.");
-        RecordPlanFile(EventSeverity.Info, result.Summary, path, result.Devices.Count);
+
+        int awaiting = result.Devices.Count(device => device.IsAwaitingMac);
+        Log.AddNotice(
+            $"Imported {result.Devices.Count} device(s) from {from}.",
+            awaiting == 0
+                ? null
+                : $"{awaiting} of them are awaiting their MAC. Fill each in from the request log (right-click a "
+                    + "request, Assign to awaiting plan row) or from a scan (right-click a result, Fill in MAC).");
+        RecordPlanFile(
+            EventSeverity.Info,
+            source is null ? result.Summary : $"{result.Summary} Sheet {source}.",
+            path,
+            result.Devices.Count);
     }
 
     /// <summary>
@@ -1069,7 +1155,10 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         {
             // Contested addresses are already in the log, worded for the segment rather than for the
             // plan. Saying it twice in the same log would train people to skim it.
-            if (finding.Severity != EventSeverity.Info && finding.Kind != PlanFindingKind.ContestedAddress)
+            // A row awaiting its MAC with a device on its address is Info - it is not a fault - but it
+            // is the one Info finding somebody has to act on, so it is said.
+            if ((finding.Severity != EventSeverity.Info || finding.Kind == PlanFindingKind.AwaitingMacFound)
+                && finding.Kind != PlanFindingKind.ContestedAddress)
             {
                 Log.AddNotice(finding.Message);
             }

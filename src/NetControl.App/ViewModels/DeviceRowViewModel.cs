@@ -255,25 +255,31 @@ public sealed partial class DeviceRowViewModel : ObservableObject
         {
             // Nothing typed yet. Not an error, and nothing to store.
             Problem = null;
-            ServeNote = "Empty row - type a MAC to add it to the plan.";
+            ServeNote = "Empty row - type a MAC, or a planned address, to add it to the plan.";
             return;
         }
+
+        // No MAC is allowed when there is an address: the row was planned off the drawings and is
+        // awaiting its MAC (PLAN-IMPORT.md F1). It stores, and is amber until the MAC arrives.
+        MacAddress mac = MacAddress.Empty;
 
         if (IsEmpty(MacText))
         {
-            Problem = "This row has no MAC address, and the plan is keyed on the MAC.";
-            ServeNote = null;
-            return;
+            if (IsEmpty(IpText))
+            {
+                Problem = "This row has no MAC and no IP address, so nothing could ever match it to a device. "
+                    + "Type the planned address off the drawing, or the MAC off the label.";
+                ServeNote = null;
+                return;
+            }
         }
-
-        if (!MacAddress.TryParse(MacText, out MacAddress mac))
+        else if (!MacAddress.TryParse(MacText, out mac))
         {
             Problem = $"'{MacText.Trim()}' is not a MAC address. Expected six hex bytes, e.g. 00:1D:9C:C7:B0:70.";
             ServeNote = null;
             return;
         }
-
-        if (mac.IsEmpty || mac.IsBroadcast || mac.IsMulticast)
+        else if (mac.IsEmpty || mac.IsBroadcast || mac.IsMulticast)
         {
             Problem = $"'{mac}' cannot identify a single device, so it must never be served.";
             ServeNote = null;

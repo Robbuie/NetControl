@@ -115,7 +115,16 @@ public sealed partial class MainViewModel
         try
         {
             // ---- 1. The plan row: the one thing Serve answers from ------------------------------
-            DeviceRowViewModel row = Plan.PlanDevice(mac);
+            // A row imported from the workbook may already be waiting at this address with no MAC.
+            // Assigning its address to this device is saying "this is that row", so the MAC goes
+            // there - rather than into a second row on the same address, which would then be a
+            // duplicate the scan reports and the next import trips over.
+            DeviceRowViewModel row =
+                !Plan.IsPlanned(mac)
+                && Plan.AwaitingAt(assignment.Ip) is { } awaiting
+                && FillAwaitingMac(mac, awaiting, "Assign IP")
+                    ? awaiting
+                    : Plan.PlanDevice(mac);
 
             // Mask and gateway first, address last: each assignment commits the row, and a row with
             // an address and no mask is briefly a problem nobody needs recorded.

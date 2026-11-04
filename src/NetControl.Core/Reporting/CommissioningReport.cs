@@ -171,7 +171,7 @@ public static class CommissioningReport
                 : $"{E(last.Message)}<br><span class=\"muted\">{E(Time(last.Utc))}</span>";
 
             html.Append("<tr>");
-            html.Append(CultureInfo.InvariantCulture, $"<td class=\"mono\">{E(device.Mac)}</td>");
+            html.Append(CultureInfo.InvariantCulture, $"<td class=\"mono\">{E(device.IsAwaitingMac ? "awaiting MAC" : device.Mac.ToString())}</td>");
             html.Append(CultureInfo.InvariantCulture, $"<td>{E(device.DisplayName)}</td>");
             html.Append(CultureInfo.InvariantCulture, $"<td>{E(device.PanelRef)}</td>");
             html.Append(CultureInfo.InvariantCulture, $"<td>{address}</td>");

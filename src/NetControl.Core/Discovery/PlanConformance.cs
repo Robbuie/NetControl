@@ -140,6 +140,24 @@ public static class PlanConformance
                 continue;
             }
 
+            // A row awaiting its MAC has nothing to compare the occupant's against, so "a different
+            // MAC" is not evidence of a conflict - it is very likely the MAC the row is waiting for.
+            // Unless that MAC is already another row's: then it is a planned device sitting on the
+            // wrong address, and the conflict below is the right thing to say.
+            if (row.IsAwaitingMac && !plannedMacs.Contains(occupant.Mac))
+            {
+                findings.Add(new PlanFinding(
+                    PlanFindingKind.AwaitingMacFound,
+                    EventSeverity.Info,
+                    $"{Describe(row)} is awaiting its MAC, and {Describe(occupant)} answered at {planned}, its "
+                        + "planned address. If that is the device, its MAC can be filled in from here.",
+                    planned,
+                    occupant.Mac,
+                    row.Id));
+
+                continue;
+            }
+
             if (occupant.Mac == row.Mac)
             {
                 findings.Add(new PlanFinding(
@@ -200,8 +218,11 @@ public static class PlanConformance
     /// A plan row as somebody would say it out loud. <c>DisplayName</c> is the one naming rule and
     /// it lives on the record, so this cannot disagree with the grid or the request log.
     /// </summary>
-    private static string Describe(DeviceRecord row) =>
-        row.DisplayName is { } name ? $"{name} ({row.Mac})" : row.Mac.ToString();
+    private static string Describe(DeviceRecord row)
+    {
+        string mac = row.IsAwaitingMac ? "awaiting MAC" : row.Mac.ToString();
+        return row.DisplayName is { } name ? $"{name} ({mac})" : mac;
+    }
 
     /// <summary>
     /// A scanned device the same way. The product name first, because on a panel that is what

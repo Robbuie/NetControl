@@ -169,19 +169,33 @@ public sealed class PlanCsvTests
     }
 
     /// <summary>
-    /// Without a MAC column there is nothing to key a plan on, and every row would come back
-    /// complaining about a missing MAC. Say the real thing once instead.
+    /// A plan taken off the drawings has addresses and no MACs yet (PLAN-IMPORT.md F1). The file
+    /// reads; whether each row is acceptable is <see cref="PlanValidation"/>'s call.
     /// </summary>
     [Fact]
-    public void RefusesAFileWithNoMacColumn()
+    public void ReadsAFileWithNoMacColumn()
+    {
+        PlanCsvRow row = Assert.Single(PlanCsv.Read("Host name,IP Address,Mask\r\nSF101RC01,192.168.1.51,255.255.255.0\r\n"));
+
+        Assert.Equal(string.Empty, row.Mac);
+        Assert.Equal("192.168.1.51", row.Ip);
+        Assert.Equal("SF101RC01", row.HostName);
+    }
+
+    /// <summary>
+    /// With neither a MAC nor an address column there is nothing to match any row to a device by,
+    /// and every row would come back complaining about it. Say the real thing once instead.
+    /// </summary>
+    [Fact]
+    public void RefusesAFileWithNeitherAMacNorAnIpColumn()
     {
         PlanCsvException ex = Assert.Throws<PlanCsvException>(
-            () => PlanCsv.Read("Ip,Mask\r\n192.168.1.51,255.255.255.0\r\n"));
+            () => PlanCsv.Read("HostName,Mask\r\nconveyor-3,255.255.255.0\r\n"));
 
-        Assert.Contains("no MAC column", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("neither a MAC nor an IP column", ex.Message, StringComparison.Ordinal);
 
-        // The header it actually saw, so the person can see which column they meant to be the MAC.
-        Assert.Contains("'Ip'", ex.Message, StringComparison.Ordinal);
+        // The header it actually saw, so the person can see which column they meant.
+        Assert.Contains("'HostName'", ex.Message, StringComparison.Ordinal);
         Assert.NotNull(ex.Remediation);
     }
 

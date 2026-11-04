@@ -79,6 +79,10 @@ public sealed record PlanConformanceReport(
                     "1 planned device answered from somewhere else.",
                     "planned devices answered from somewhere else.")
                 + Tally(
+                    PlanFindingKind.AwaitingMacFound,
+                    "1 row awaiting its MAC has a device answering at its planned address.",
+                    "rows awaiting their MAC have a device answering at their planned address.")
+                + Tally(
                     PlanFindingKind.NotInPlan,
                     "1 device answered that is not in the plan.",
                     "devices answered that are not in the plan.");

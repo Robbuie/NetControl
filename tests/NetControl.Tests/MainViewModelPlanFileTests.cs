@@ -6,6 +6,7 @@ using NetControl.Core;
 using NetControl.Core.Dhcp;
 using NetControl.Core.Oui;
 using NetControl.Core.Persistence;
+using NetControl.Core.Plan;
 using Xunit;
 
 namespace NetControl.Tests;
@@ -142,9 +143,9 @@ public sealed class MainViewModelPlanFileTests : IDisposable
     [Fact]
     public void RefusesAFileThatIsNotAPlanWithoutListingRows()
     {
-        _viewModel.ImportPlan(WriteCsv("Ip,Mask\r\n192.168.1.51,255.255.255.0\r\n"));
+        _viewModel.ImportPlan(WriteCsv("HostName,Mask\r\nconveyor-3,255.255.255.0\r\n"));
 
-        Assert.Contains("no MAC column", _viewModel.ErrorMessage ?? string.Empty, StringComparison.Ordinal);
+        Assert.Contains("neither a MAC nor an IP column", _viewModel.ErrorMessage ?? string.Empty, StringComparison.Ordinal);
         Assert.Empty(_viewModel.Plan.Rows);
     }
 
@@ -243,6 +244,203 @@ public sealed class MainViewModelPlanFileTests : IDisposable
         {
             // Same.
         }
+    }
+
+    // ---- Project IP workbooks and rows awaiting their MAC (PLAN-IMPORT.md F2, F3) -------------
+
+    /// <summary>
+    /// One sheet in, every row awaiting its MAC: in the grid, not in the policy - nothing is
+    /// servable until a MAC arrives - and in the record with the sheet named.
+    /// </summary>
+    [Fact]
+    public void ImportsOneWorkbookSheetAsRowsAwaitingTheirMac()
+    {
+        string path = WriteWorkbook(Cell("SF101", "192.168.1.51", "192.168.1.52"));
+
+        PlanWorkbook? workbook = _viewModel.ReadWorkbook(path);
+        Assert.NotNull(workbook);
+        PlanSheet sheet = Assert.Single(workbook.Sheets);
+
+        _viewModel.ImportWorkbookSheet(path, sheet, Masks(sheet));
+
+        Assert.Null(_viewModel.ErrorMessage);
+        Assert.Equal(2, _viewModel.Plan.Rows.Count);
+        Assert.All(_viewModel.Plan.Rows, row => Assert.Equal(string.Empty, row.MacText));
+        Assert.Equal(0, _viewModel.PlannedDeviceCount);
+        Assert.Equal(2, _viewModel.Plan.AwaitingMac().Count);
+
+        EventRecord row = Assert.Single(_project.Events.All(), e => e.Category == EventCategory.App);
+        Assert.Contains("Sheet SF101", row.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Two devices on one address refuse the sheet, and the problem says which sheet the row
+    /// numbers are on - "line 6" means nothing without it.
+    /// </summary>
+    [Fact]
+    public void RefusesAWorkbookSheetWithADuplicateAndNamesTheSheet()
+    {
+        string path = WriteWorkbook(Cell("SF101", "120.15.106.135", "120.15.106.135"));
+        PlanSheet sheet = Assert.Single(_viewModel.ReadWorkbook(path)!.Sheets);
+
+        _viewModel.ImportWorkbookSheet(path, sheet, Masks(sheet));
+
+        Assert.Empty(_viewModel.Plan.Rows);
+        Assert.Contains("SF101 sheet", _viewModel.ErrorRemediation ?? string.Empty, StringComparison.Ordinal);
+        Assert.Contains(_viewModel.Log.Entries, e => e.Message.StartsWith("Import SF101: line 3:", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// A workbook plans several subnets at once, so the adapter's own subnet is not held against it
+    /// the way it is for a CSV - otherwise no real workbook would ever import.
+    /// </summary>
+    [Fact]
+    public void ImportsAWorkbookSheetThatSpansSubnetsTheAdapterIsNotOn()
+    {
+        _viewModel.InterfaceBar.ApplyInventory([Nics.Healthy()]);
+        _viewModel.InterfaceBar.SelectedAdapter = _viewModel.InterfaceBar.Adapters[0];
+
+        string path = WriteWorkbook(Cell("SF101", "120.15.106.13", "192.168.5.1"));
+        PlanSheet sheet = Assert.Single(_viewModel.ReadWorkbook(path)!.Sheets);
+
+        _viewModel.ImportWorkbookSheet(path, sheet, Masks(sheet));
+
+        Assert.Null(_viewModel.ErrorMessage);
+        Assert.Equal(2, _viewModel.Plan.Rows.Count);
+    }
+
+    [Fact]
+    public void SaysWhyAFileIsNotAWorkbook()
+    {
+        Assert.Null(_viewModel.ReadWorkbook(WriteCsv(Header, "plan.xlsx")));
+        Assert.Contains("not an Excel workbook", _viewModel.ErrorMessage ?? string.Empty, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The request-log path: a new device asks, the user picks the row it is, and the MAC lands on
+    /// that row - which is now servable, and the fill is in the record.
+    /// </summary>
+    [Fact]
+    public void FillsAnAwaitingRowsMacFromARequest()
+    {
+        ImportAwaiting("192.168.1.51");
+        LogEntryViewModel request = Request(Drive);
+
+        IReadOnlyList<AwaitingRowOption>? options = _viewModel.AwaitingRowsFor(request);
+        Assert.NotNull(options);
+        AwaitingRowOption option = Assert.Single(options);
+        Assert.Equal("SF101RC01", option.Name);
+
+        Assert.True(_viewModel.AssignToAwaitingRow(request, option.Row));
+
+        Assert.Equal(Drive, option.Row.Mac);
+        Assert.Equal(1, _viewModel.PlannedDeviceCount);
+        Assert.True(_policy.TryGet(Drive, out _));
+        Assert.Empty(_viewModel.Plan.AwaitingMac());
+        Assert.Contains(_project.Events.All(), e => e.Message.StartsWith("MAC filled in from the request log", StringComparison.Ordinal));
+    }
+
+    /// <summary>A device already in the plan is not offered rows: it would end up on two.</summary>
+    [Fact]
+    public void OffersNoAwaitingRowsToADeviceAlreadyPlanned()
+    {
+        _viewModel.ImportPlan(WriteCsv(Header + "00:1D:9C:C7:B0:70,192.168.1.60,255.255.255.0,,,,,\r\n"));
+        ImportAwaiting("192.168.1.51");
+
+        Assert.Null(_viewModel.AwaitingRowsFor(Request(Drive)));
+        Assert.Single(_viewModel.Plan.AwaitingMac());
+    }
+
+    [Fact]
+    public void SaysSoWhenNoRowIsAwaitingAMac()
+    {
+        Assert.Null(_viewModel.AwaitingRowsFor(Request(Drive)));
+        Assert.Contains(_viewModel.Log.Entries, e => e.Message == "No plan row is awaiting a MAC.");
+    }
+
+    /// <summary>
+    /// The scan path: a device sitting at an awaiting row's address is paired with it, an address
+    /// two devices answered on is not, and only the pairings shown are written.
+    /// </summary>
+    [Fact]
+    public void FillsInTheAwaitingMacsAScanFound()
+    {
+        ImportAwaiting("192.168.1.51", "192.168.1.52");
+
+        MacAddress other = MacAddress.Parse("00:1D:9C:C7:B0:71");
+        MacAddress third = MacAddress.Parse("00:1D:9C:C7:B0:72");
+        _viewModel.Scan.Rows.Add(Answering("192.168.1.51", Drive));
+        _viewModel.Scan.Rows.Add(Answering("192.168.1.52", other));
+        _viewModel.Scan.Rows.Add(Answering("192.168.1.52", third));
+
+        IReadOnlyList<AwaitingMacMatch> matches = _viewModel.AwaitingMacMatches();
+
+        AwaitingMacMatch match = Assert.Single(matches);
+        Assert.Equal("SF101RC01", match.RowName);
+        Assert.Equal(Drive, match.Result.Mac);
+
+        Assert.Equal(1, _viewModel.FillMacsFromScan(matches));
+        Assert.Equal(Drive, match.Row.Mac);
+        Assert.Single(_viewModel.Plan.AwaitingMac());
+    }
+
+    [Fact]
+    public void FillsInOneMacFromAScanResult()
+    {
+        ImportAwaiting("192.168.1.51");
+
+        Assert.True(_viewModel.FillMacFromScan(Answering("192.168.1.51", Drive)));
+        Assert.Empty(_viewModel.Plan.AwaitingMac());
+
+        // Nothing awaiting there any more: said, not done twice.
+        Assert.False(_viewModel.FillMacFromScan(Answering("192.168.1.51", MacAddress.Parse("00:1D:9C:C7:B0:71"))));
+    }
+
+    private static ScanResultViewModel Answering(string address, MacAddress mac) =>
+        new(new NetControl.Core.Discovery.DiscoveredDevice
+        {
+            Identity = Identities.Reply(address: address),
+            Mac = mac,
+            MacSource = NetControl.Core.Discovery.MacSource.Arp,
+        });
+
+    private void ImportAwaiting(params string[] ips)
+    {
+        string path = WriteWorkbook(Cell("SF101", ips));
+        PlanSheet sheet = Assert.Single(_viewModel.ReadWorkbook(path)!.Sheets);
+        _viewModel.ImportWorkbookSheet(path, sheet, Masks(sheet));
+        Assert.Null(_viewModel.ErrorMessage);
+    }
+
+    private static LogEntryViewModel Request(MacAddress mac) =>
+        LogEntryViewModel.FromRequest(
+            Events.Request(mac, AssignmentDecision.Ignore("not in the plan")),
+            vendor: null,
+            planned: null,
+            DhcpServerMode.Watch,
+            selectedInterfaceIndex: null);
+
+    /// <summary>A cell sheet with one robot per address, SF101RC01 first.</summary>
+    private static XlsxBuilder Cell(string name, params string[] ips)
+    {
+        List<string?[]> rows = [["Switch", "Port", "Chain", "Device", "IP", "IP2", "Notes"]];
+        for (int i = 0; i < ips.Length; i++)
+        {
+            rows.Add(["ES1", $"#{i + 9}", "#1", $"{name}RC0{i + 1}", ips[i]]);
+        }
+
+        return new XlsxBuilder().Sheet(name, [.. rows]);
+    }
+
+    private static Dictionary<string, PlanSubnetSettings> Masks(PlanSheet sheet) =>
+        sheet.Subnets.ToDictionary(prefix => prefix, _ => PlanSubnetSettings.Default);
+
+    private string WriteWorkbook(XlsxBuilder builder, string name = "flint.xlsx")
+    {
+        string path = Path.Combine(_directory, name);
+        using MemoryStream built = builder.Build();
+        File.WriteAllBytes(path, built.ToArray());
+        return path;
     }
 
     private string WriteCsv(string text, string name = "plan.csv")

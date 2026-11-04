@@ -261,6 +261,24 @@ public sealed partial class DeviceGridViewModel : ObservableObject
         SetStaticAllCommand.NotifyCanExecuteChanged();
     }
 
+    /// <summary>
+    /// The rows awaiting their MAC (PLAN-IMPORT.md F1): written to the file, with a planned address
+    /// and no MAC yet. What "Assign to awaiting plan row" and "Fill in MAC" offer.
+    /// </summary>
+    public IReadOnlyList<DeviceRowViewModel> AwaitingMac() => [.. Rows.Where(IsAwaiting)];
+
+    /// <summary>The row awaiting its MAC that is planned at this address, if there is one.</summary>
+    public DeviceRowViewModel? AwaitingAt(IPAddress address)
+    {
+        ArgumentNullException.ThrowIfNull(address);
+
+        return Rows.FirstOrDefault(row =>
+            IsAwaiting(row) && row.TryBuild(out DeviceRecord? record) && address.Equals(record?.PlannedIp));
+    }
+
+    private static bool IsAwaiting(DeviceRowViewModel row) =>
+        row.Id > 0 && row.TryBuild(out DeviceRecord? record) && record is { IsAwaitingMac: true, PlannedIp: not null };
+
     /// <summary>Whether the plan already holds this MAC. The plan is keyed on it, so this is exact.</summary>
     public bool IsPlanned(MacAddress mac) => !mac.IsEmpty && Rows.Any(row => row.Mac == mac);
 
@@ -312,13 +330,10 @@ public sealed partial class DeviceGridViewModel : ObservableObject
         {
             try
             {
-                // Deleted by the MAC the file holds, not the one in the cell. A user who mistyped
-                // over a good MAC and then hit Remove means "get rid of this row", and keying off
-                // the unparseable text would leave the real row in the plan.
-                if (_project.Devices.Get(row.Id) is { } stored)
-                {
-                    _project.Devices.Delete(stored.Mac);
-                }
+                // Deleted by row id, not by the MAC in the cell. A user who mistyped over a good MAC
+                // and then hit Remove means "get rid of this row", and a row awaiting its MAC has no
+                // MAC to be deleted by at all.
+                _project.Devices.Delete(row.Id);
             }
             catch (PersistenceException ex)
             {
@@ -877,6 +892,50 @@ public sealed partial class DeviceGridViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Why this row cannot be written as it stands, when the reason is a row awaiting its MAC at the
+    /// same address. Null when there is none.
+    ///
+    /// <para>A row awaiting its MAC is found by its planned address (PLAN-IMPORT.md F1), and a new
+    /// row goes in through <see cref="DeviceRepository.Upsert"/>, which matches that way - so a
+    /// second row on the address would not be added, it would be written over the first. Refusing
+    /// here says so instead. Rows that both have a MAC are left alone: two of those sharing an
+    /// address is a planning mistake the import and the scan already report, not an ambiguity.</para>
+    /// </summary>
+    private string? AwaitingClash(DeviceRowViewModel row, DeviceRecord built)
+    {
+        if (row.Id != 0 || built.PlannedIp is not { } address)
+        {
+            return null;
+        }
+
+        foreach (DeviceRowViewModel other in Rows)
+        {
+            if (ReferenceEquals(other, row) || other.Id == 0
+                || !other.TryBuild(out DeviceRecord? stored) || stored is null
+                || !address.Equals(stored.PlannedIp))
+            {
+                continue;
+            }
+
+            if (stored.IsAwaitingMac)
+            {
+                string name = stored.DisplayName ?? $"the row for {address}";
+                return $"{name} is already planned at {address} and is awaiting its MAC. Type the MAC into "
+                    + "that row rather than adding a second one.";
+            }
+
+            if (built.IsAwaitingMac)
+            {
+                string name = stored.DisplayName ?? stored.Mac.ToString();
+                return $"{address} is already planned for {name}. A row with no MAC is matched by its address, "
+                    + "so it needs one nobody else has.";
+            }
+        }
+
+        return null;
+    }
+
     private bool CanRemoveDevice() => SelectedRow is not null;
 
     private DeviceRowViewModel NewRow()
@@ -915,10 +974,17 @@ public sealed partial class DeviceGridViewModel : ObservableObject
             return;
         }
 
-        if (Rows.Any(other => !ReferenceEquals(other, row) && other.Mac == built.Mac))
+        if (!built.Mac.IsEmpty && Rows.Any(other => !ReferenceEquals(other, row) && other.Mac == built.Mac))
         {
             row.Problem = $"{built.Mac} is already in the plan. The plan is keyed on the MAC, so it can only "
                 + "appear once.";
+            OnPropertyChanged(nameof(ServableCount));
+            return;
+        }
+
+        if (AwaitingClash(row, built) is { } clash)
+        {
+            row.Problem = clash;
             OnPropertyChanged(nameof(ServableCount));
             return;
         }

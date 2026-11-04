@@ -294,6 +294,58 @@ public class PlanConformanceTests
         Assert.Equal(0, report.PlannedWithAddress);
     }
 
+    /// <summary>
+    /// A row awaiting its MAC (PLAN-IMPORT.md F1) with something answering at its address. Before
+    /// rows could lack a MAC this compared the occupant's MAC against the empty one and called it
+    /// a conflict - an Error, on the device the row was waiting for. It is a proposal, and it
+    /// carries the MAC so the scan can offer to fill it in.
+    /// </summary>
+    [Fact]
+    public void OffersTheMacOfWhateverAnswersAtAnAwaitingRowsAddress()
+    {
+        PlanConformanceReport report = PlanConformance.Compare(
+            [Planned(3, MacAddress.Empty, "192.168.1.51", "SF101RC01")],
+            Scan(Answering("192.168.1.51", Drive, "R-30iB Plus")));
+
+        PlanFinding finding = Assert.Single(report.Findings);
+
+        Assert.Equal(PlanFindingKind.AwaitingMacFound, finding.Kind);
+        Assert.Equal(EventSeverity.Info, finding.Severity);
+        Assert.False(report.HasConflicts);
+        Assert.Equal(Drive, finding.Mac);
+        Assert.Equal(3, finding.DeviceId);
+        Assert.Contains("SF101RC01 (awaiting MAC)", finding.Message, StringComparison.Ordinal);
+        Assert.Contains("R-30iB Plus", finding.Message, StringComparison.Ordinal);
+        Assert.Contains("1 row awaiting its MAC", report.Summary, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Unless the MAC answering there is already another row's. Then it is not the device this row
+    /// is waiting for - it is a planned device on the wrong address, and that is still a conflict.
+    /// </summary>
+    [Fact]
+    public void StillCallsItAConflictWhenTheOccupantIsAnotherPlannedDevice()
+    {
+        PlanConformanceReport report = PlanConformance.Compare(
+            [Planned(3, MacAddress.Empty, "192.168.1.51", "SF101RC01"), Planned(4, Hmi, "192.168.1.60", "HMI")],
+            Scan(Answering("192.168.1.51", Hmi, "PanelView 800")));
+
+        Assert.Contains(report.Findings, f => f.Kind == PlanFindingKind.AddressTakenByAnother && f.DeviceId == 3);
+        Assert.DoesNotContain(report.Findings, f => f.Kind == PlanFindingKind.AwaitingMacFound);
+        Assert.True(report.HasConflicts);
+    }
+
+    /// <summary>No MAC resolved, nothing to offer: it stays an unattributable address.</summary>
+    [Fact]
+    public void OffersNothingWhenWhatAnsweredHasNoMac()
+    {
+        PlanConformanceReport report = PlanConformance.Compare(
+            [Planned(3, MacAddress.Empty, "192.168.1.51", "SF101RC01")],
+            Scan(Unidentified("192.168.1.51")));
+
+        Assert.Equal(PlanFindingKind.AddressUnattributable, Assert.Single(report.Findings).Kind);
+    }
+
     private static DeviceRecord Planned(long id, MacAddress mac, string ip, string? role = null) => new()
     {
         Id = id,

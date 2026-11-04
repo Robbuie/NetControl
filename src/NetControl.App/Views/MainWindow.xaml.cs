@@ -26,6 +26,10 @@ public partial class MainWindow : Window
 
     private const string PlanFilter = "Plan (*.csv)|*.csv|All files (*.*)|*.*";
 
+    private const string ImportFilter =
+        "Plan or workbook (*.csv;*.xlsx;*.xlsm)|*.csv;*.xlsx;*.xlsm|Plan (*.csv)|*.csv|"
+        + "Excel workbook (*.xlsx;*.xlsm)|*.xlsx;*.xlsm|All files (*.*)|*.*";
+
     /// <summary>Guards the Help menu's update check against a second press while one is in flight.</summary>
     private bool _checkingForUpdates;
 
@@ -319,14 +323,108 @@ public partial class MainWindow : Window
 
         var dialog = new OpenFileDialog
         {
-            Title = "Import plan from CSV",
-            Filter = PlanFilter,
+            Title = "Import plan",
+            Filter = ImportFilter,
             DefaultExt = ".csv",
         };
 
-        if (dialog.ShowDialog(this) == true)
+        if (dialog.ShowDialog(this) != true)
+        {
+            return;
+        }
+
+        string extension = Path.GetExtension(dialog.FileName);
+        if (!extension.Equals(".xlsx", StringComparison.OrdinalIgnoreCase)
+            && !extension.Equals(".xlsm", StringComparison.OrdinalIgnoreCase))
         {
             viewModel.ImportPlan(dialog.FileName);
+            return;
+        }
+
+        // A workbook: read it, then let the user pick the one sheet and the mask and gateway per
+        // subnet. The rules are all Core's; this is only the asking.
+        if (viewModel.ReadWorkbook(dialog.FileName) is not { } workbook)
+        {
+            return;
+        }
+
+        var picker = new WorkbookImportWindow(dialog.FileName, workbook) { Owner = this };
+        if (picker.ShowDialog() == true && picker.Sheet is { } sheet)
+        {
+            viewModel.ImportWorkbookSheet(dialog.FileName, sheet, picker.Subnets);
+        }
+    }
+
+    /// <summary>
+    /// The device that asked is one of the rows imported without a MAC. The picker returns which;
+    /// the write and the record are <see cref="MainViewModel.AssignToAwaitingRow"/>'s.
+    /// </summary>
+    private void OnAssignToAwaitingRow(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is not { } viewModel || EntryFrom(sender) is not { } entry
+            || viewModel.AwaitingRowsFor(entry) is not { } options)
+        {
+            return;
+        }
+
+        var picker = new AwaitingRowWindow($"{entry.Mac}   {entry.VendorText}", options) { Owner = this };
+        if (picker.ShowDialog() == true && picker.Result is { } row)
+        {
+            viewModel.AssignToAwaitingRow(entry, row);
+        }
+    }
+
+    private void OnFillMacFromScan(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is { } viewModel && ScanResultFrom(sender) is { } result)
+        {
+            viewModel.FillMacFromScan(result);
+        }
+    }
+
+    /// <summary>
+    /// Every pairing, shown in full and confirmed before any is written - a wrong MAC on a row hands
+    /// that row's address to the wrong device. The confirmation is here because it is a window.
+    /// </summary>
+    private void OnFillAllMacsFromScan(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is not { } viewModel)
+        {
+            return;
+        }
+
+        IReadOnlyList<AwaitingMacMatch> matches = viewModel.AwaitingMacMatches();
+        if (matches.Count == 0)
+        {
+            return;
+        }
+
+        const int Shown = 25;
+        string pairs = string.Join(
+            Environment.NewLine,
+            matches.Take(Shown).Select(m =>
+                $"{m.RowName}  ({m.Result.AddressText})   <-   {m.Result.MacText}"
+                + (m.Result.ProductText.Length > 0 ? $"  {m.Result.ProductText}"
+                    : m.Result.VendorText.Length > 0 ? $"  {m.Result.VendorText}" : string.Empty)));
+        if (matches.Count > Shown)
+        {
+            pairs += $"{Environment.NewLine}... and {matches.Count - Shown} more.";
+        }
+
+        MessageBoxResult answer = MessageBox.Show(
+            this,
+            $"Fill in {matches.Count} MAC(s) from the scan?{Environment.NewLine}{Environment.NewLine}{pairs}"
+                + $"{Environment.NewLine}{Environment.NewLine}Each device answered at the planned address of a row "
+                + "awaiting its MAC. Check them against the drawing - a wrong pairing hands that row's address to "
+                + "the wrong device. Nothing is sent.",
+            "Fill in awaiting MACs",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question,
+            MessageBoxResult.No);
+
+        if (answer == MessageBoxResult.Yes)
+        {
+            viewModel.FillMacsFromScan(matches);
         }
     }
 

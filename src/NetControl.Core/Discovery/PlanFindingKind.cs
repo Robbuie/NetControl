@@ -57,4 +57,12 @@ public enum PlanFindingKind
     /// commissioning plan.
     /// </summary>
     NotInPlan,
+
+    /// <summary>
+    /// A plan row awaiting its MAC (PLAN-IMPORT.md F1) has something answering at its planned
+    /// address, with a MAC resolved by ARP. Not a conflict and not a confirmation: a proposal. The
+    /// finding carries the MAC that answered, so the scan can offer to fill it in - and it is only
+    /// ever offered, because a wrong MAC on a row hands that address to the wrong device.
+    /// </summary>
+    AwaitingMacFound,
 }

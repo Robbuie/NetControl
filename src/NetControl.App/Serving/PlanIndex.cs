@@ -41,6 +41,13 @@ public sealed class PlanIndex : IPlanIndex
 
         foreach (DeviceRecord device in devices)
         {
+            // A row awaiting its MAC is not findable by MAC - that is what awaiting means - and
+            // indexing it would file every such row under the empty MAC.
+            if (device.IsAwaitingMac)
+            {
+                continue;
+            }
+
             // Last one wins. The file has a UNIQUE constraint on Mac so there is no duplicate to
             // resolve; indexing rather than adding just means a caller passing an ad-hoc sequence
             // cannot make this throw.

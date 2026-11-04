@@ -61,7 +61,7 @@ public sealed class PlanValidationTests
 
     [Theory]
     [InlineData("not-a-mac,192.168.1.51,255.255.255.0,,,,,", "is not a MAC address")]
-    [InlineData(",192.168.1.51,255.255.255.0,,,,,", "no MAC address")]
+    [InlineData(",,255.255.255.0,,,,Conveyor 3 drive,", "no MAC address and no IP address")]
     [InlineData("FF:FF:FF:FF:FF:FF,192.168.1.51,255.255.255.0,,,,,", "broadcast address")]
     [InlineData("01:1D:9C:C7:B0:70,192.168.1.51,255.255.255.0,,,,,", "group bit")]
     [InlineData("00:00:00:00:00:00,192.168.1.51,255.255.255.0,,,,,", "all zeros")]
@@ -105,6 +105,43 @@ public sealed class PlanValidationTests
         // scrolling a hundred-row file looking for it.
         Assert.Contains("on line 2", problem.Message, StringComparison.Ordinal);
         Assert.Contains("00:1D:9C:C7:B0:70", problem.Message, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A row off the drawings: a name and an address, the MAC still to come (PLAN-IMPORT.md F1).
+    /// It imports, and no vendor is resolved for it - the empty MAC's OUI is Xerox's.
+    /// </summary>
+    [Fact]
+    public void AcceptsARowAwaitingItsMac()
+    {
+        PlanValidationResult result = PlanValidation.Validate(
+            PlanCsv.Read(Header + ",192.168.1.51,255.255.255.0,,SF101RC01,SF101 ES1-9,,\r\n"),
+            new PlanImportContext { Oui = new FakeOuiLookup("Xerox") });
+
+        Assert.True(result.IsValid);
+        DeviceRecord device = Assert.Single(result.Devices);
+        Assert.True(device.IsAwaitingMac);
+        Assert.Equal(IPAddress.Parse("192.168.1.51"), device.PlannedIp);
+        Assert.Equal("SF101RC01", device.HostName);
+        Assert.Null(device.Vendor);
+    }
+
+    /// <summary>
+    /// Two rows awaiting their MAC on one address are still two devices on one address - and the
+    /// row is matched by that address, so this matters more for them, not less. With no MAC to name
+    /// the first row by, it is named by its label.
+    /// </summary>
+    [Fact]
+    public void RefusesTwoRowsAwaitingTheirMacOnOneAddress()
+    {
+        PlanValidationResult result = Validate(
+            ",120.15.106.135,255.255.255.0,,SF101SCC1.EN1,,,\r\n"
+            + ",120.15.106.135,255.255.255.0,,SF101SCC1.EN2,,,\r\n");
+
+        Assert.False(result.IsValid);
+        PlanProblem problem = Assert.Single(result.Problems);
+        Assert.Equal(3, problem.LineNumber);
+        Assert.Contains("already planned for SF101SCC1.EN1 on line 2", problem.Message, StringComparison.Ordinal);
     }
 
     [Fact]

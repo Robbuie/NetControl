@@ -42,6 +42,36 @@ public class DeviceRowViewModelTests
     }
 
     /// <summary>
+    /// A row off the drawings: an address and a name, the MAC still to come (PLAN-IMPORT.md F1).
+    /// It stores, and is amber - never servable - until the MAC arrives.
+    /// </summary>
+    [Fact]
+    public void AnAddressWithNoMacStoresAsAwaitingItsMac()
+    {
+        DeviceRowViewModel row = DeviceRowViewModel.Blank();
+        row.IpText = "192.168.1.51";
+        row.HostName = "SF101RC01";
+
+        Assert.False(row.HasProblem);
+        Assert.False(row.IsServable);
+        Assert.Contains("awaiting its MAC", row.ServeNote, StringComparison.Ordinal);
+        Assert.True(row.TryBuild(out DeviceRecord? built));
+        Assert.True(built!.IsAwaitingMac);
+    }
+
+    /// <summary>A name and nothing to match it by is still a problem, and says what is missing.</summary>
+    [Fact]
+    public void ANameWithNeitherMacNorAddressBlocksTheWrite()
+    {
+        DeviceRowViewModel row = DeviceRowViewModel.Blank();
+        row.HostName = "SF101RC01";
+
+        Assert.True(row.HasProblem);
+        Assert.Contains("no MAC and no IP address", row.Problem!, StringComparison.Ordinal);
+        Assert.False(row.TryBuild(out _));
+    }
+
+    /// <summary>
     /// The messages come from <see cref="DeviceRecord.TryToAssignment"/> rather than being written
     /// again here. Two sets of wording for the same finding is how a row and the plan summary end
     /// up disagreeing about whether something is wrong.

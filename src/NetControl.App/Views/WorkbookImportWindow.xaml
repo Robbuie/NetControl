@@ -1,0 +1,79 @@
+<Window x:Class="NetControl.App.Views.WorkbookImportWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Import plan from workbook"
+        SizeToContent="Height"
+        Width="560"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner"
+        Style="{StaticResource ChromeDialog}">
+
+  <!-- One sheet of the project IP workbook becomes the plan (PLAN-IMPORT.md F2). The reading and
+       every rule are Core's (PlanWorkbook, PlanSheet, PlanValidation); this window only picks the
+       sheet and asks for the two things the workbook does not carry per device. -->
+
+  <StackPanel Margin="18,14,18,14">
+    <TextBlock x:Name="FileText" Style="{StaticResource PanelHead}" TextWrapping="Wrap" />
+    <TextBlock Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,2,0,12"
+               Text="Imports one cell's sheet. Every device arrives awaiting its MAC - fill each in later from the request log or a scan. Nothing is imported if any row has a problem; every problem is listed in the log with its row number." />
+
+    <Border Style="{StaticResource Card}" Padding="14,12">
+      <StackPanel>
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+          <TextBlock Text="Sheet" Style="{StaticResource PanelHead}" VerticalAlignment="Center" Margin="0,0,14,0" />
+          <ComboBox Grid.Column="1" x:Name="SheetBox" DisplayMemberPath="Name" SelectionChanged="OnSheetChanged" />
+        </Grid>
+        <TextBlock x:Name="SummaryText" Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,8,0,0" />
+      </StackPanel>
+    </Border>
+
+    <Border Style="{StaticResource Card}" Padding="14,12" Margin="0,10,0,0">
+      <StackPanel>
+        <Grid Margin="0,0,0,6">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="120" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="*" />
+          </Grid.ColumnDefinitions>
+          <TextBlock Grid.Column="0" Text="Subnet" Style="{StaticResource PanelHead}" />
+          <TextBlock Grid.Column="1" Text="Subnet mask" Style="{StaticResource PanelHead}" />
+          <TextBlock Grid.Column="2" Text="Gateway" Style="{StaticResource PanelHead}" Margin="8,0,0,0" />
+        </Grid>
+
+        <ItemsControl x:Name="SubnetList">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate>
+              <Grid Margin="0,0,0,6">
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="120" />
+                  <ColumnDefinition Width="*" />
+                  <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Text="{Binding Label}" FontFamily="{DynamicResource mono}"
+                           VerticalAlignment="Center" />
+                <TextBox Grid.Column="1" Text="{Binding Mask, UpdateSourceTrigger=PropertyChanged}"
+                         FontFamily="{DynamicResource mono}" />
+                <TextBox Grid.Column="2" Text="{Binding Gateway, UpdateSourceTrigger=PropertyChanged}"
+                         FontFamily="{DynamicResource mono}" Margin="8,0,0,0" />
+              </Grid>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <TextBlock Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,2,0,0"
+                   Text="Every device on a subnet gets its mask and gateway. Blank gateway: none. Checked on import, with the rest of the sheet." />
+      </StackPanel>
+    </Border>
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+      <Button Content="Import" Style="{StaticResource PrimaryButton}" IsDefault="True" MinWidth="80"
+              Margin="0,0,8,0" Click="OnImport" />
+      <Button Content="Cancel" IsCancel="True" MinWidth="80" />
+    </StackPanel>
+  </StackPanel>
+</Window>

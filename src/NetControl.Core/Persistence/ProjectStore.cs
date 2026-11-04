@@ -159,6 +159,12 @@ public sealed class ProjectStore : IDisposable
             connection.Dispose();
             throw;
         }
+        catch (PersistenceException)
+        {
+            // A migration that checked the file and refused it - already worded for a person.
+            connection.Dispose();
+            throw;
+        }
         catch (SqliteException ex)
         {
             connection.Dispose();

@@ -4,6 +4,27 @@ Newest first. The release workflow copies a version's section onto its GitHub re
 write it for the person deciding whether to install the update. The heading has to start
 `## <version>` for that to find it.
 
+## 0.13.0 - import the project IP workbook as the plan
+
+- **Import the project IP workbook.** **File > Import plan** now reads an Excel workbook (.xlsx) as
+  well as a CSV. Pick one cell's sheet (SF101, SF102...), give each subnet a mask and gateway, and
+  every device on it - IP2 ports as their own rows - comes into the plan. As with a CSV, nothing is
+  imported if any row has a problem, and each problem gives its row number on the sheet.
+  Reads the Rev3 layout too: Final IP1/IP2, with the Temp address planned while there is one (the
+  final goes in Notes), *Same port* IP2s kept in the main row's Notes rather than as rows of their
+  own, and Dev Port added to the Panel. Hidden tabs, and the Net/IP List views when the workbook
+  has port-map sheets, are not offered.
+- **Plan rows without a MAC.** A device planned off the drawings can now be in the plan before
+  anyone has read its MAC. The row is amber, "awaiting MAC", and is never served until it has one.
+- **Fill MACs in as devices turn up**: right-click a request > **Assign to awaiting plan row...**;
+  right-click a scan result > **Fill in MAC on its plan row**; or **Tools > Fill in awaiting MACs
+  from the scan...**, which shows every pairing before changing anything. Assign IP to the address
+  of a waiting row fills that row in too. Nothing is filled in without you choosing it.
+- Project files are upgraded to a new version on opening. **An upgraded file cannot be opened by
+  0.12.0 or earlier** - keep a copy if you need to go back.
+- A scan no longer reports a row with no MAC as "held by a different device" when something answers
+  at its address; it says the row's MAC can be filled in from there.
+
 ## 0.12.0 - Assign IP: serve an address and disable BOOTP/DHCP in one step
 
 - **Assign IP, like the Rockwell BOOTP/DHCP tool.** Double-click a device in **Live requests**, type

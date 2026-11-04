@@ -5,7 +5,8 @@ using NetControl.Core.Dhcp;
 namespace NetControl.Core.Persistence;
 
 /// <summary>
-/// The plan, stored. Reads and writes <c>Device</c> rows, keyed on MAC.
+/// The plan, stored. Reads and writes <c>Device</c> rows, keyed on MAC - or, for a row still
+/// awaiting its MAC (PLAN-IMPORT.md F1), on its planned address.
 ///
 /// Everything here is synchronous. SQLite on a local file is a memcpy with extra steps, and
 /// Microsoft.Data.Sqlite's async methods are synchronous underneath anyway - an async signature
@@ -28,6 +29,8 @@ public sealed class DeviceRepository
 
     private const string SelectAll = SelectColumns + " ORDER BY PlannedIp IS NULL, PlannedIp, Mac;";
 
+    private const string SelectByPlannedIp = SelectColumns + " WHERE PlannedIp = $ip ORDER BY Id;";
+
     private readonly ProjectStore _store;
 
     internal DeviceRepository(ProjectStore store) => _store = store;
@@ -40,24 +43,73 @@ public sealed class DeviceRepository
     });
 
     /// <summary>
-    /// Inserts, or replaces the row with the same MAC. Replaces rather than merges: a re-import of
-    /// a corrected CSV must be able to blank a field that should not be set, and a merge would
-    /// leave yesterday's wrong gateway sitting in the plan with nothing to show it was ever there.
+    /// Inserts, or replaces the row this device already has. Replaces rather than merges: a
+    /// re-import of a corrected CSV must be able to blank a field that should not be set, and a
+    /// merge would leave yesterday's wrong gateway sitting in the plan with nothing to show it was
+    /// ever there.
     ///
     /// <para><b>Except the quirks, which are merged.</b> A CSV has no quirks column, so a re-import
     /// would otherwise zero what Set static learned about every device in the file. They are cleared
     /// by a person in the quirk editor, which goes through <see cref="Update"/> and replaces.</para>
+    ///
+    /// <para><b>Which row is "already there"</b> depends on whether the device has a MAC:</para>
+    /// <list type="bullet">
+    ///   <item>With a MAC, the row holding that MAC. Failing that, a row <em>awaiting</em> a MAC at
+    ///         the same planned address takes it - a CSV with MACs, imported over the workbook that
+    ///         had none, fills the plan in rather than doubling it.</item>
+    ///   <item>Without one, the row at the same planned address, whose MAC (and the vendor that came
+    ///         with it) is kept: re-importing the workbook must not throw away a MAC that was filled
+    ///         in from the wire. Two rows at that address is ambiguous and refused, rather than one
+    ///         of them winning silently.</item>
+    /// </list>
     /// </summary>
     /// <returns>The row id, whether inserted or updated.</returns>
+    /// <exception cref="PersistenceException">
+    /// The MAC cannot identify a device, a MAC-less row has no planned address to be matched by, or
+    /// more than one row already holds that address.
+    /// </exception>
     public long Upsert(DeviceRecord device)
     {
         ArgumentNullException.ThrowIfNull(device);
 
-        Guard(device.Mac);
+        Guard(device);
 
         return _store.InTransaction(connection =>
         {
             using SqliteCommand command = connection.CreateCommand();
+
+            if (device.Mac.IsEmpty)
+            {
+                if (RowAtAddress(device.PlannedIp, awaitingOnly: false) is { } id)
+                {
+                    return UpdateKeepingMac(connection, id, device);
+                }
+            }
+            else if (Find(device.Mac) is null && RowAtAddress(device.PlannedIp, awaitingOnly: true) is { } awaiting)
+            {
+                // The MAC is being filled in on a row that was waiting for it.
+                command.CommandText = """
+                    UPDATE Device SET
+                        Mac         = $mac,
+                        PlannedIp   = $ip,
+                        PlannedMask = $mask,
+                        PlannedGw   = $gw,
+                        HostName    = $host,
+                        PanelRef    = $panel,
+                        Role        = $role,
+                        Vendor      = $vendor,
+                        QuirkFlags  = $quirks | QuirkFlags,
+                        Notes       = $notes
+                    WHERE Id = $id
+                    RETURNING Id;
+                    """;
+                command.Parameters.AddWithValue("$id", awaiting);
+                AddValues(command, device);
+                return (long)command.ExecuteScalar()!;
+            }
+
+            // A new row, or the row holding this MAC. A NULL MAC never conflicts, so a device
+            // with none always lands here as a new row.
             command.CommandText = """
                 INSERT INTO Device (Mac, PlannedIp, PlannedMask, PlannedGw, HostName, PanelRef, Role, Vendor,
                                     QuirkFlags, Notes)
@@ -112,7 +164,7 @@ public sealed class DeviceRepository
     /// edits a row that already exists, so it needs to say which row.</para>
     ///
     /// <para>Changing the MAC of a device that already appears in the commissioning record is
-    /// refused for the same reason <see cref="Delete"/> is: the <c>Event</c> table is append-only
+    /// refused for the same reason <see cref="Delete(long)"/> is: the <c>Event</c> table is append-only
     /// and its rows point at this Id, so renaming it would rewrite what those events say happened.</para>
     /// </summary>
     /// <returns>False if the row is gone - deleted underneath an open grid.</returns>
@@ -126,7 +178,7 @@ public sealed class DeviceRepository
                 "Update needs the row id. Use Upsert for a device that is not in the plan yet.", nameof(device));
         }
 
-        Guard(device.Mac);
+        Guard(device);
 
         return _store.InTransaction(connection =>
         {
@@ -138,7 +190,9 @@ public sealed class DeviceRepository
 
             if (existing.Mac != device.Mac)
             {
-                if (ReferenceCount(connection, device.Id) > 0)
+                // Filling in the MAC of a row that was awaiting one is not renaming a device: the
+                // record never named a MAC for it, so nothing it says is rewritten.
+                if (!existing.Mac.IsEmpty && ReferenceCount(connection, device.Id) > 0)
                 {
                     throw new PersistenceException(
                         $"{existing.Mac} already appears in this project's commissioning record, so its MAC "
@@ -149,7 +203,7 @@ public sealed class DeviceRepository
                     };
                 }
 
-                if (Find(device.Mac) is { } clash)
+                if (!device.Mac.IsEmpty && Find(device.Mac) is { } clash)
                 {
                     throw new PersistenceException($"{device.Mac} is already in the plan (row {clash.Id}).")
                     {
@@ -182,7 +236,8 @@ public sealed class DeviceRepository
         });
     }
 
-    public DeviceRecord? Find(MacAddress mac) => _store.Read(connection =>
+    /// <summary>The row holding this MAC. Never a row awaiting one: the empty MAC finds nothing.</summary>
+    public DeviceRecord? Find(MacAddress mac) => mac.IsEmpty ? null : _store.Read(connection =>
     {
         using SqliteCommand command = connection.CreateCommand();
         command.CommandText = SelectByMac;
@@ -224,9 +279,16 @@ public sealed class DeviceRepository
     /// without leaving the record referring to a device that never existed.
     /// </summary>
     /// <returns>False if there was no such MAC.</returns>
-    public bool Delete(MacAddress mac)
+    public bool Delete(MacAddress mac) => Find(mac) is { } device && Delete(device.Id);
+
+    /// <summary>
+    /// Removes a planned device by row id - the only way to name a row that is still awaiting its
+    /// MAC. Same refusal as <see cref="Delete(MacAddress)"/>.
+    /// </summary>
+    /// <returns>False if there was no such row.</returns>
+    public bool Delete(long id)
     {
-        DeviceRecord? device = Find(mac);
+        DeviceRecord? device = Get(id);
         if (device is null)
         {
             return false;
@@ -237,7 +299,8 @@ public sealed class DeviceRepository
             if (ReferenceCount(connection, device.Id) > 0)
             {
                 throw new PersistenceException(
-                    $"{mac} already appears in this project's commissioning record, so it cannot be removed.")
+                    $"{Describe(device)} already appears in this project's commissioning record, so it cannot be "
+                    + "removed.")
                 {
                     Remediation = "Edit the row instead, or start a new project file if the plan was wrong "
                         + "from the beginning.",
@@ -270,10 +333,11 @@ public sealed class DeviceRepository
             {
                 assignments.Add(assignment!);
             }
-            else if (device.IsPlanned)
+            else if (device.IsPlanned && !device.IsAwaitingMac)
             {
-                // A row with no address at all is not a problem, it is a plan in progress. A row
-                // with an address that will not validate is a problem.
+                // A row with no address at all is not a problem, it is a plan in progress - and so
+                // is a row awaiting its MAC. A row with an address that will not validate is a
+                // problem.
                 found.Add(problem!);
             }
         }
@@ -285,7 +349,7 @@ public sealed class DeviceRepository
     private static DeviceRecord Map(SqliteDataReader reader) => new()
     {
         Id = reader.GetInt64(0),
-        Mac = MacAddress.TryParse(reader.GetString(1), out MacAddress mac) ? mac : MacAddress.Empty,
+        Mac = !reader.IsDBNull(1) && MacAddress.TryParse(reader.GetString(1), out MacAddress mac) ? mac : MacAddress.Empty,
         PlannedIp = SqlRead.Address(reader, 2),
         PlannedMask = SqlRead.Address(reader, 3),
         PlannedGateway = SqlRead.Address(reader, 4),
@@ -301,10 +365,32 @@ public sealed class DeviceRepository
     /// A MAC that cannot identify one device cannot go in the plan, whichever way in it came.
     /// Serve mode answers exactly the MACs listed here, so a broadcast or multicast address in
     /// this table is a rogue reply waiting to happen.
+    ///
+    /// <para>No MAC at all is allowed - the row is awaiting one, and is never served - but only
+    /// with a planned address. That address is all such a row can be found by, on re-import and
+    /// when its MAC is filled in from the wire; without it the row would be a name nothing could
+    /// ever be matched to.</para>
     /// </summary>
-    private static void Guard(MacAddress mac)
+    private static void Guard(DeviceRecord device)
     {
-        if (!mac.IsEmpty && !mac.IsBroadcast && !mac.IsMulticast)
+        MacAddress mac = device.Mac;
+
+        if (mac.IsEmpty)
+        {
+            if (device.PlannedIp is not null)
+            {
+                return;
+            }
+
+            throw new PersistenceException(
+                $"{device.DisplayName ?? "This row"} has neither a MAC nor a planned address, so nothing could "
+                + "ever match it to a device.")
+            {
+                Remediation = "Give it a planned address from the drawing, or the MAC off the device label.",
+            };
+        }
+
+        if (!mac.IsBroadcast && !mac.IsMulticast)
         {
             return;
         }
@@ -314,6 +400,86 @@ public sealed class DeviceRepository
             Remediation = "Check the MAC on the device label - it should be six hex bytes, "
                 + "e.g. 00:1D:9C:C7:B0:70.",
         };
+    }
+
+    /// <summary>
+    /// The row at a planned address, for matching a device that has no MAC to be matched by. Null
+    /// for no address or no row; refused when more than one row holds it, because picking one
+    /// would be the import deciding which device somebody meant.
+    /// </summary>
+    private long? RowAtAddress(System.Net.IPAddress? address, bool awaitingOnly)
+    {
+        if (address is null)
+        {
+            return null;
+        }
+
+        List<DeviceRecord> at = _store.Read(connection =>
+        {
+            using SqliteCommand command = connection.CreateCommand();
+            command.CommandText = SelectByPlannedIp;
+            command.Parameters.AddWithValue("$ip", address.ToString());
+
+            using SqliteDataReader reader = command.ExecuteReader();
+            List<DeviceRecord> rows = [];
+            while (reader.Read())
+            {
+                rows.Add(Map(reader));
+            }
+
+            return rows;
+        });
+
+        if (awaitingOnly)
+        {
+            at.RemoveAll(row => !row.IsAwaitingMac);
+        }
+
+        return at.Count switch
+        {
+            0 => null,
+            1 => at[0].Id,
+            _ => throw new PersistenceException(
+                $"{at.Count} rows in the plan are already planned for {address} ("
+                + string.Join(", ", at.Select(Describe)) + "), so there is no telling which one this is.")
+            {
+                Remediation = "Correct or remove the extra rows so the address is planned once, then import again.",
+            },
+        };
+    }
+
+    /// <summary>
+    /// Replaces a row's planned fields from a device that has no MAC, keeping the MAC and vendor the
+    /// row already has and merging the quirks - see <see cref="Upsert"/>.
+    /// </summary>
+    private static long UpdateKeepingMac(SqliteConnection connection, long id, DeviceRecord device)
+    {
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = """
+            UPDATE Device SET
+                PlannedIp   = $ip,
+                PlannedMask = $mask,
+                PlannedGw   = $gw,
+                HostName    = $host,
+                PanelRef    = $panel,
+                Role        = $role,
+                QuirkFlags  = $quirks | QuirkFlags,
+                Notes       = $notes
+            WHERE Id = $id
+            RETURNING Id;
+            """;
+
+        command.Parameters.AddWithValue("$id", id);
+        AddValues(command, device);
+
+        return (long)command.ExecuteScalar()!;
+    }
+
+    /// <summary>A row as a message names it: its label and MAC, or that it is still awaiting one.</summary>
+    private static string Describe(DeviceRecord device)
+    {
+        string mac = device.IsAwaitingMac ? "awaiting MAC" : device.Mac.ToString();
+        return device.DisplayName is { } name ? $"{name} ({mac})" : mac;
     }
 
     /// <summary>
@@ -337,7 +503,7 @@ public sealed class DeviceRepository
     /// </summary>
     private static void AddValues(SqliteCommand command, DeviceRecord device)
     {
-        command.Parameters.AddWithValue("$mac", device.Mac.ToString());
+        AddNullable(command, "$mac", device.Mac.IsEmpty ? null : device.Mac.ToString());
         AddNullable(command, "$ip", device.PlannedIp?.ToString());
         AddNullable(command, "$mask", device.PlannedMask?.ToString());
         AddNullable(command, "$gw", device.PlannedGateway?.ToString());

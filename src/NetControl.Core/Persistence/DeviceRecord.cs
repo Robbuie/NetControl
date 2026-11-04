@@ -19,7 +19,10 @@ public sealed record DeviceRecord
     /// <summary>Row id. 0 for a record that has not been written yet.</summary>
     public long Id { get; init; }
 
-    /// <summary>The primary key that matters. Unique in the file.</summary>
+    /// <summary>
+    /// The primary key that matters. Unique in the file - or <see cref="MacAddress.Empty"/> for a
+    /// row still awaiting its MAC (see <see cref="IsAwaitingMac"/>).
+    /// </summary>
     public required MacAddress Mac { get; init; }
 
     public IPAddress? PlannedIp { get; init; }
@@ -46,6 +49,13 @@ public sealed record DeviceRecord
 
     /// <summary>Has enough of an address to be worth trying to serve. Not the same as valid.</summary>
     public bool IsPlanned => PlannedIp is not null && PlannedMask is not null;
+
+    /// <summary>
+    /// Planned from the drawings, with no MAC yet (PLAN-IMPORT.md F1). Never served - BOOTP answers
+    /// a MAC, and this row has none to answer - until one is filled in from the request log, a scan,
+    /// or by hand. Not a problem: it is how the project's IP workbook arrives.
+    /// </summary>
+    public bool IsAwaitingMac => Mac.IsEmpty;
 
     /// <summary>
     /// What to call this device on screen, or null when nobody has labelled it yet.
@@ -83,6 +93,13 @@ public sealed record DeviceRecord
     public bool TryToAssignment(out DeviceAssignment? assignment, out string? problem)
     {
         assignment = null;
+
+        if (IsAwaitingMac)
+        {
+            string name = DisplayName ?? PlannedIp?.ToString() ?? "This row";
+            problem = $"{name} is awaiting its MAC - assign it from the request log or a scan, or type it in";
+            return false;
+        }
 
         if (PlannedIp is null)
         {

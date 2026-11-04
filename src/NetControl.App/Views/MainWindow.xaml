@@ -28,8 +28,8 @@
           <MenuItem Header="Save _as..." Click="OnSaveProjectAs"
                     ToolTip="Copies this project - plan, assignments and the whole event log - to a file, and keeps working there." />
           <Separator />
-          <MenuItem Header="_Import plan from CSV..." Click="OnImportPlan"
-                    ToolTip="Checks the whole file first. If anything in it is wrong, nothing is imported and every problem is listed with its line number." />
+          <MenuItem Header="_Import plan (CSV or Excel workbook)..." Click="OnImportPlan"
+                    ToolTip="A plan CSV, or one sheet of the project IP workbook. Checks the whole file first. If anything in it is wrong, nothing is imported and every problem is listed with its line number." />
           <MenuItem Header="_Export plan to CSV..." Click="OnExportPlan"
                     ToolTip="The plan only. What was served and what was verified stay in the project's event log, which nothing can edit." />
           <Separator />
@@ -68,6 +68,9 @@
                     ToolTip="Pings every planned address and fills in the Reach column." />
           <MenuItem Header="_Diagnostics..." Click="OnDiagnoseSelectedRow"
                     ToolTip="Opens the Diagnostics tab on the selected plan row's device." />
+          <Separator />
+          <MenuItem Header="_Fill in awaiting MACs from the scan..." Click="OnFillAllMacsFromScan"
+                    ToolTip="For every plan row awaiting its MAC, the device the last scan found at its planned address. Shows every pairing before anything is changed. Nothing is sent." />
         </MenuItem>
         <MenuItem Header="_Help">
           <!-- The README, compiled into the exe, so it is there on a laptop with no route out. -->
@@ -355,8 +358,8 @@
           </TextBlock>
           <Button Content="Add device" Margin="16,0,0,0" Command="{Binding Plan.AddDeviceCommand}"
                   ToolTip="Adds an empty row to type a device into. Nothing is sent." />
-          <Button Content="Import CSV..." Click="OnImportPlan"
-                  ToolTip="Reads a whole plan from a spreadsheet. If anything in the file is wrong, nothing is imported and every problem is listed with its line number." />
+          <Button Content="Import plan..." Click="OnImportPlan"
+                  ToolTip="Reads a whole plan from a CSV, or one sheet of the project IP workbook (.xlsx). If anything in the file is wrong, nothing is imported and every problem is listed with its line number." />
           <Button Content="Remove" Command="{Binding Plan.RemoveDeviceCommand}"
                   Visibility="{Binding Plan.HasRows, Converter={StaticResource BoolToVisible}}"
                   ToolTipService.ShowOnDisabled="True"
@@ -621,7 +624,7 @@
             <WrapPanel>
               <Button Content="Scan the network" Style="{StaticResource PrimaryButton}" Click="OnScanFromEmptyPlan"
                       ToolTip="Opens Scan results and scans from the adapter selected at the top of the window." />
-              <Button Content="Import CSV..." Margin="8,0,0,0" Click="OnImportPlan" />
+              <Button Content="Import plan..." Margin="8,0,0,0" Click="OnImportPlan" />
               <Button Content="Add device" Margin="8,0,0,0" Command="{Binding Plan.AddDeviceCommand}" />
             </WrapPanel>
           </StackPanel>
@@ -676,6 +679,8 @@
                             ToolTip="Type an address for this device. It is served and, unless you untick it, BOOTP/DHCP is then turned off so it keeps it - like the Rockwell tool's Disable BOOTP/DHCP." />
                   <MenuItem Header="_Add to plan" Click="OnAddToPlan"
                             ToolTip="Adds this MAC to the plan, ready for you to type its address. Nothing is sent." />
+                  <MenuItem Header="Assign to a_waiting plan row..." Click="OnAssignToAwaitingRow"
+                            ToolTip="This device is one of the plan rows imported without a MAC: pick which, and its MAC is written onto that row. Nothing is sent." />
                 </ContextMenu>
               </ListView.Resources>
 
@@ -879,6 +884,10 @@
                 <ContextMenu x:Key="ScanRowMenu">
                   <MenuItem Header="_Add to plan" Click="OnAddScanResultToPlan"
                             ToolTip="Adds this device to the plan at the address it is already holding. Nothing is sent." />
+                  <MenuItem Header="_Fill in MAC on its plan row" Click="OnFillMacFromScan"
+                            ToolTip="A plan row awaiting its MAC is planned at the address this device answered from: write this device's MAC onto it. Nothing is sent." />
+                  <MenuItem Header="Fill in _all awaiting MACs from the scan..." Click="OnFillAllMacsFromScan"
+                            ToolTip="Every pairing of a plan row awaiting its MAC with the device found at its address - shown in full before anything is changed." />
                   <MenuItem Header="_Diagnose this device" Click="OnDiagnoseScanResult"
                             ToolTip="Opens the Diagnostics tab on this device's address. Nothing is sent until you press a button there." />
                 </ContextMenu>

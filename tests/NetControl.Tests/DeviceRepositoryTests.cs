@@ -276,7 +276,7 @@ public class DeviceRepositoryTests
     }
 
     /// <summary>
-    /// Same rule as <see cref="DeviceRepository.Delete"/>, for the same reason: <c>Event</c> rows
+    /// Same rule as <see cref="DeviceRepository.Delete(MacAddress)"/>, for the same reason: <c>Event</c> rows
     /// point at this Id, and renaming it would rewrite what those events say happened. Editing the
     /// rest of the row is still fine - only the identity is frozen.
     /// </summary>
@@ -329,6 +329,193 @@ public class DeviceRepositoryTests
         using ProjectStore store = temp.Open();
 
         Assert.False(store.Devices.Update(Planned() with { Id = 4242 }));
+    }
+
+    // ---- Rows awaiting their MAC (PLAN-IMPORT.md F1) ----------------------------------------
+    //
+    // The project IP workbook comes off the drawings: names and addresses, no MACs. Those rows go
+    // in, are never served, are matched by their planned address until the MAC arrives, and must
+    // not lose a MAC filled in from the wire when the workbook is imported again.
+
+    private static DeviceRecord Awaiting(string ip = "192.168.1.51", string host = "SF101RC01") => new()
+    {
+        Mac = MacAddress.Empty,
+        PlannedIp = IPAddress.Parse(ip),
+        PlannedMask = IPAddress.Parse("255.255.255.0"),
+        HostName = host,
+        PanelRef = "SF101 ES1-9",
+    };
+
+    [Fact]
+    public void StoresARowAwaitingItsMac()
+    {
+        using var temp = new TempProject();
+        using ProjectStore store = temp.Open();
+
+        long id = store.Devices.Upsert(Awaiting());
+
+        DeviceRecord? read = store.Devices.Get(id);
+        Assert.NotNull(read);
+        Assert.True(read.IsAwaitingMac);
+        Assert.Equal(IPAddress.Parse("192.168.1.51"), read.PlannedIp);
+        Assert.Equal("SF101RC01", read.HostName);
+
+        // The empty MAC is not a key: it finds nothing, rather than every awaiting row.
+        Assert.Null(store.Devices.Find(MacAddress.Empty));
+    }
+
+    /// <summary>
+    /// NULL, not 00:00:00:00:00:00. Stored as the all-zero MAC, the second awaiting row would trip
+    /// the UNIQUE constraint on the first.
+    /// </summary>
+    [Fact]
+    public void HoldsAnyNumberOfRowsAwaitingTheirMac()
+    {
+        using var temp = new TempProject();
+        using ProjectStore store = temp.Open();
+
+        store.Devices.UpsertRange([Awaiting("192.168.1.51", "RC01"), Awaiting("192.168.1.52", "RC02"), Awaiting("192.168.1.53", "RC03")]);
+
+        Assert.Equal(3, store.Devices.Count);
+        Assert.All(store.Devices.All(), row => Assert.True(row.IsAwaitingMac));
+    }
+
+    [Fact]
+    public void RefusesARowWithNeitherAMacNorAnAddress()
+    {
+        using var temp = new TempProject();
+        using ProjectStore store = temp.Open();
+
+        var ex = Assert.Throws<PersistenceException>(
+            () => store.Devices.Upsert(Awaiting() with { PlannedIp = null }));
+
+        Assert.Contains("neither a MAC nor a planned address", ex.Message, StringComparison.Ordinal);
+        Assert.Equal(0, store.Devices.Count);
+    }
+
+    /// <summary>Importing the workbook twice corrects the plan rather than doubling it.</summary>
+    [Fact]
+    public void ReimportingMatchesARowAwaitingItsMacByItsAddress()
+    {
+        using var temp = new TempProject();
+        using ProjectStore store = temp.Open();
+
+        long id = store.Devices.Upsert(Awaiting() with { Notes = "Rev1" });
+        long again = store.Devices.Upsert(Awaiting() with { Notes = "Rev2" });
+
+        Assert.Equal(id, again);
+        Assert.Equal(1, store.Devices.Count);
+        Assert.Equal("Rev2", store.Devices.Get(id)?.Notes);
+    }
+
+    /// <summary>
+    /// The workbook has no MACs, so re-importing it must not throw away one that was filled in from
+    /// the request log or a scan since - nor the vendor that came with it.
+    /// </summary>
+    [Fact]
+    public void ReimportingTheWorkbookKeepsAMacFilledInSince()
+    {
+        using var temp = new TempProject();
+        using ProjectStore store = temp.Open();
+
+        long id = store.Devices.Upsert(Awaiting());
+        Assert.True(store.Devices.Update(Awaiting() with { Id = id, Mac = Mac, Vendor = "FANUC" }));
+
+        long again = store.Devices.Upsert(Awaiting() with { Notes = "Rev2" });
+
+        DeviceRecord? read = store.Devices.Get(id);
+        Assert.Equal(id, again);
+        Assert.Equal(1, store.Devices.Count);
+        Assert.NotNull(read);
+        Assert.Equal(Mac, read.Mac);
+        Assert.Equal("FANUC", read.Vendor);
+        Assert.Equal("Rev2", read.Notes);
+    }
+
+    /// <summary>A CSV with MACs imported over the workbook fills the rows in, rather than adding beside them.</summary>
+    [Fact]
+    public void AMacArrivingForAnAwaitingAddressFillsThatRowIn()
+    {
+        using var temp = new TempProject();
+        using ProjectStore store = temp.Open();
+
+        long id = store.Devices.Upsert(Awaiting());
+        long filled = store.Devices.Upsert(Awaiting() with { Mac = Mac, Vendor = "FANUC" });
+
+        Assert.Equal(id, filled);
+        Assert.Equal(1, store.Devices.Count);
+        Assert.Equal(id, store.Devices.Find(Mac)?.Id);
+    }
+
+    /// <summary>
+    /// Filling in a MAC is not renaming a device: the record never named a MAC for this row, so
+    /// nothing it says is rewritten. The rule that freezes a MAC once it is in the record is about
+    /// changing one, not about the first one arriving.
+    /// </summary>
+    [Fact]
+    public void FillsInTheMacOfAnAwaitingRowEvenOnceItIsInTheRecord()
+    {
+        using var temp = new TempProject();
+        using ProjectStore store = temp.Open();
+
+        long id = store.Devices.Upsert(Awaiting());
+        store.Events.Append(EventSeverity.Info, EventCategory.App, "Planned from the workbook.", deviceId: id);
+
+        Assert.True(store.Devices.Update(Awaiting() with { Id = id, Mac = Mac }));
+        Assert.Equal(id, store.Devices.Find(Mac)?.Id);
+
+        // But once it has one, the old rule holds.
+        Assert.Throws<PersistenceException>(() => store.Devices.Update(Awaiting() with { Id = id }));
+    }
+
+    /// <summary>
+    /// Two rows already on the address: there is no telling which one a MAC-less row means, so it
+    /// is refused rather than written over whichever came first.
+    /// </summary>
+    [Fact]
+    public void RefusesToGuessWhichRowAnAwaitingDeviceMeans()
+    {
+        using var temp = new TempProject();
+        using ProjectStore store = temp.Open();
+
+        store.Devices.Upsert(Planned(ip: "192.168.1.51"));
+        store.Devices.Upsert(Planned(ip: "192.168.1.51") with { Mac = MacAddress.Parse("00:00:BC:5E:11:02") });
+
+        var ex = Assert.Throws<PersistenceException>(() => store.Devices.Upsert(Awaiting()));
+
+        Assert.Contains("2 rows in the plan are already planned for 192.168.1.51", ex.Message, StringComparison.Ordinal);
+        Assert.Equal(2, store.Devices.Count);
+    }
+
+    /// <summary>
+    /// Not served, and not a problem either. "12 planned devices will not be served" on opening a
+    /// freshly imported workbook would be a warning that is true of every row and useful about none.
+    /// </summary>
+    [Fact]
+    public void AnAwaitingRowIsNeitherServedNorAProblem()
+    {
+        using var temp = new TempProject();
+        using ProjectStore store = temp.Open();
+
+        store.Devices.Upsert(Awaiting());
+
+        Assert.Empty(store.Devices.PlannedAssignments(out IReadOnlyList<string> problems));
+        Assert.Empty(problems);
+        Assert.False(Awaiting().TryToAssignment(out _, out string? why));
+        Assert.Contains("awaiting its MAC", why, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DeletesARowAwaitingItsMacById()
+    {
+        using var temp = new TempProject();
+        using ProjectStore store = temp.Open();
+
+        long id = store.Devices.Upsert(Awaiting());
+
+        Assert.True(store.Devices.Delete(id));
+        Assert.Equal(0, store.Devices.Count);
+        Assert.False(store.Devices.Delete(id));
     }
 
     private static SqliteConnection OpenRaw(string path)

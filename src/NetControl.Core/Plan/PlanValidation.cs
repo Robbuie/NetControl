@@ -20,6 +20,11 @@ namespace NetControl.Core.Plan;
 ///
 /// <para>Deliberately not checked: whether an address is already in use out on the wire. The file
 /// cannot know that and neither can this - it is what the scan is for.</para>
+///
+/// <para><b>A row may have no MAC, if it has an address.</b> That is a device planned off the
+/// drawings and awaiting its MAC (PLAN-IMPORT.md F1): it is imported, never served, and matched by
+/// its address until the MAC is filled in. A row with neither is still refused - nothing could ever
+/// match it to a device.</para>
 /// </summary>
 public static class PlanValidation
 {
@@ -34,13 +39,14 @@ public static class PlanValidation
         var problems = new List<PlanProblem>();
         var devices = new List<DeviceRecord>(rows.Count);
         var macsSeen = new Dictionary<MacAddress, int>();
-        var ipsSeen = new Dictionary<IPAddress, (int Line, string Mac)>();
+        var ipsSeen = new Dictionary<IPAddress, (int Line, string Who)>();
 
         foreach (PlanCsvRow row in rows)
         {
             int before = problems.Count;
 
             MacAddress mac = CheckMac(row, problems, macsSeen);
+            CheckSomethingToMatchBy(row, problems);
             IPAddress? ip = CheckIp(row, problems, context);
             IPAddress? mask = CheckMask(row, problems);
             IPAddress? gateway = CheckGateway(row, problems);
@@ -65,7 +71,9 @@ public static class PlanValidation
                 PanelRef = Blank(row.PanelRef),
                 Role = Blank(row.Role),
                 Notes = Blank(row.Notes),
-                Vendor = context.Oui?.Lookup(mac),
+                // Not looked up for a row awaiting its MAC: the empty MAC's OUI is 00:00:00, which
+                // the IEEE table assigns to Xerox.
+                Vendor = mac.IsEmpty ? null : context.Oui?.Lookup(mac),
             });
         }
 
@@ -81,8 +89,8 @@ public static class PlanValidation
     {
         if (row.Mac.Length == 0)
         {
-            Add(problems, row, "no MAC address. The plan is keyed on the MAC, so a row without one "
-                + "cannot be matched to a device - take it off the label or off the module.");
+            // Awaiting its MAC. Whether that is allowed depends on the address - see
+            // CheckSomethingToMatchBy, which says so once rather than here and again there.
             return MacAddress.Empty;
         }
 
@@ -122,6 +130,20 @@ public static class PlanValidation
 
         seen[mac] = row.LineNumber;
         return mac;
+    }
+
+    /// <summary>
+    /// A row with no MAC is matched by its planned address, so it has to have one. Reported on the
+    /// text rather than the parsed address: an address that did not parse already has its own,
+    /// more useful, problem.
+    /// </summary>
+    private static void CheckSomethingToMatchBy(PlanCsvRow row, List<PlanProblem> problems)
+    {
+        if (row.Mac.Length == 0 && row.Ip.Length == 0)
+        {
+            Add(problems, row, "no MAC address and no IP address, so nothing could ever match this row to a "
+                + "device. Give it the planned address off the drawing, or the MAC off the label.");
+        }
     }
 
     /// <summary>
@@ -237,22 +259,35 @@ public static class PlanValidation
         MacAddress mac,
         IPAddress? ip,
         List<PlanProblem> problems,
-        Dictionary<IPAddress, (int Line, string Mac)> seen)
+        Dictionary<IPAddress, (int Line, string Who)> seen)
     {
         if (ip is null)
         {
             return;
         }
 
-        if (seen.TryGetValue(ip, out (int Line, string Mac) first))
+        if (seen.TryGetValue(ip, out (int Line, string Who) first))
         {
-            Add(problems, row, $"{ip} is already planned for {first.Mac} on line {first.Line}. Two "
+            Add(problems, row, $"{ip} is already planned for {first.Who} on line {first.Line}. Two "
                 + "devices on one address is the fault that is hardest to find on a panel and easiest "
                 + "to prevent here.");
             return;
         }
 
-        seen[ip] = (row.LineNumber, mac.IsEmpty ? "the device above" : mac.ToString());
+        seen[ip] = (row.LineNumber, Who(row, mac));
+    }
+
+    /// <summary>How a duplicate-address problem names the row that got there first.</summary>
+    private static string Who(PlanCsvRow row, MacAddress mac)
+    {
+        string? name = Blank(row.HostName) ?? Blank(row.Role) ?? Blank(row.PanelRef);
+
+        if (name is null)
+        {
+            return mac.IsEmpty ? "the device above" : mac.ToString();
+        }
+
+        return mac.IsEmpty ? name : $"{name} ({mac})";
     }
 
     private static void Add(List<PlanProblem> problems, PlanCsvRow row, string message) =>

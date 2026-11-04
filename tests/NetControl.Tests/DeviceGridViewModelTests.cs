@@ -324,6 +324,58 @@ public sealed class DeviceGridViewModelTests : IDisposable
         Assert.Empty(_grid.Rows);
     }
 
+    /// <summary>Typing the MAC into a row awaiting one fills that row in, rather than adding a second.</summary>
+    [Fact]
+    public void TypingTheMacIntoAnAwaitingRowFillsItIn()
+    {
+        DeviceRowViewModel row = Add();
+        row.IpText = "192.168.1.51";
+        row.MaskText = "255.255.255.0";
+        long id = row.Id;
+
+        Assert.NotEqual(0, id);
+        Assert.True(_project.Devices.Get(id)?.IsAwaitingMac);
+
+        row.MacText = "00:1D:9C:C7:B0:70";
+
+        Assert.Equal(1, _project.Devices.Count);
+        Assert.Equal(id, _project.Devices.Find(Drive)?.Id);
+        Assert.True(row.IsServable);
+    }
+
+    /// <summary>
+    /// A new row is written through Upsert, which matches a MAC-less row by its address - so a
+    /// second one on the same address would overwrite the first. Refused with a sentence instead.
+    /// </summary>
+    [Fact]
+    public void RefusesASecondRowOnTheAddressOfOneAwaitingItsMac()
+    {
+        DeviceRowViewModel first = Add();
+        first.IpText = "192.168.1.51";
+        first.HostName = "SF101RC01";
+
+        DeviceRowViewModel second = Add();
+        second.IpText = "192.168.1.51";
+
+        Assert.True(second.HasProblem);
+        Assert.Contains("awaiting its MAC", second.Problem!, StringComparison.Ordinal);
+        Assert.Equal(1, _project.Devices.Count);
+        Assert.Equal("SF101RC01", _project.Devices.Get(first.Id)?.HostName);
+    }
+
+    [Fact]
+    public void RemovesARowAwaitingItsMac()
+    {
+        DeviceRowViewModel row = Add();
+        row.IpText = "192.168.1.51";
+
+        _grid.SelectedRow = row;
+        _grid.RemoveDeviceCommand.Execute(null);
+
+        Assert.Equal(0, _project.Devices.Count);
+        Assert.Empty(_grid.Rows);
+    }
+
     private DeviceRowViewModel Add()
     {
         _grid.AddDeviceCommand.Execute(null);

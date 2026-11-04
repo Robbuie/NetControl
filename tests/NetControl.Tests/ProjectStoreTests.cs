@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using NetControl.Core;
 using NetControl.Core.Persistence;
 using Xunit;
 
@@ -190,6 +191,75 @@ public class ProjectStoreTests
 
         Assert.Throws<ObjectDisposedException>(
             () => store.Events.Append(EventSeverity.Info, EventCategory.App, "Too late."));
+    }
+
+    /// <summary>
+    /// Version 4 rebuilds <c>Device</c> so a row can await its MAC (PLAN-IMPORT.md F1). It is the
+    /// first step that rebuilds a table the record points at, so this is the one to trust least: a
+    /// version 3 file with a plan, an assignment and an event in it has to come through with every
+    /// id intact and the references still enforced.
+    /// </summary>
+    [Fact]
+    public void MigratesAVersion3PlanSoARowCanAwaitItsMac()
+    {
+        using var temp = new TempProject();
+
+        using (SqliteConnection connection = Connect(temp.FilePath))
+        {
+            using (SqliteCommand pragma = connection.CreateCommand())
+            {
+                pragma.CommandText = "PRAGMA foreign_keys = ON;";
+                pragma.ExecuteNonQuery();
+            }
+
+            foreach (string step in SchemaMigrations.Steps.Take(3))
+            {
+                using SqliteCommand command = connection.CreateCommand();
+                command.CommandText = step;
+                command.ExecuteNonQuery();
+            }
+
+            using SqliteCommand seed = connection.CreateCommand();
+            seed.CommandText = """
+                PRAGMA user_version = 3;
+                INSERT INTO Device (Id, Mac, PlannedIp, PlannedMask, HostName) VALUES
+                    (7, '00:1D:9C:C7:B0:70', '192.168.1.51', '255.255.255.0', 'conveyor-3');
+                INSERT INTO Assignment (DeviceId, ServedIp, NicIndex, NicName, ServedUtc) VALUES
+                    (7, '192.168.1.51', 12, 'Ethernet', '2026-10-01T12:00:00.0000000Z');
+                INSERT INTO Event (Utc, Severity, Category, DeviceId, Message) VALUES
+                    ('2026-10-01T12:00:00.0000000Z', 'Info', 'Dhcp', 7, 'Served.');
+                """;
+            seed.ExecuteNonQuery();
+        }
+
+        using (ProjectStore store = temp.Open())
+        {
+            Assert.Equal(4, store.Project.SchemaVersion);
+
+            DeviceRecord? kept = store.Devices.Get(7);
+            Assert.NotNull(kept);
+            Assert.Equal("conveyor-3", kept.HostName);
+            Assert.Contains(7L, store.Assignments.ServedDeviceIds());
+
+            long awaiting = store.Devices.Upsert(new DeviceRecord
+            {
+                Mac = MacAddress.Empty,
+                PlannedIp = System.Net.IPAddress.Parse("192.168.1.52"),
+                PlannedMask = System.Net.IPAddress.Parse("255.255.255.0"),
+            });
+            Assert.True(store.Devices.Get(awaiting)?.IsAwaitingMac);
+
+            // Still in the record, so still not removable: the references survived the rebuild.
+            Assert.Throws<PersistenceException>(() => store.Devices.Delete(7));
+        }
+
+        Assert.Equal(4, UserVersionOf(temp.FilePath));
+
+        using SqliteConnection raw = Connect(temp.FilePath);
+        using SqliteCommand check = raw.CreateCommand();
+        check.CommandText = "PRAGMA foreign_key_check;";
+        using SqliteDataReader dangling = check.ExecuteReader();
+        Assert.False(dangling.Read());
     }
 
     private static int UserVersionOf(string path)

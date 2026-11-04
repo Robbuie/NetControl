@@ -25,9 +25,20 @@ internal static class SchemaMigrations
     /// Highest schema version this build understands. Always equal to <see cref="Steps"/>.Count -
     /// step index <c>i</c> takes the file from version <c>i</c> to version <c>i + 1</c>.
     /// </summary>
-    public const int CurrentVersion = 3;
+    public const int CurrentVersion = 4;
 
-    public static IReadOnlyList<string> Steps { get; } = [V1, V2, V3];
+    public static IReadOnlyList<string> Steps { get; } = [V1, V2, V3, V4];
+
+    /// <summary>
+    /// The steps, by index, that rebuild a table other tables point at. SQLite cannot drop a
+    /// constraint from a column, so the only way to loosen one is the documented copy-drop-rename,
+    /// and that has to run with foreign key enforcement off - dropping the old parent table would
+    /// otherwise trip the references to it, even though the new table carries the same ids. The
+    /// pragma is a no-op inside a transaction, so <see cref="Migrate"/> sets it around the step
+    /// rather than in it, and runs <c>PRAGMA foreign_key_check</c> before committing so that "off"
+    /// never means "unchecked".
+    /// </summary>
+    private static readonly HashSet<int> RebuildsReferencedTable = [3];
 
     /// <summary>
     /// Initial schema. The table definitions are the ones written out in ROADMAP.md; the triggers
@@ -170,6 +181,47 @@ internal static class SchemaMigrations
         """;
 
     /// <summary>
+    /// A plan row may have no MAC yet (PLAN-IMPORT.md F1): imported from the project's IP workbook,
+    /// which comes off the drawings, with the MAC filled in later from the BOOTP log or a scan.
+    ///
+    /// <para><c>Mac</c> loses its <c>NOT NULL</c> and keeps its <c>UNIQUE</c>. SQLite treats every
+    /// NULL as distinct, so any number of rows can be awaiting a MAC while a real MAC still appears
+    /// once - which is the whole rule, and why no partial index is needed. A MAC-less row is stored
+    /// as NULL, never as 00:00:00:00:00:00: the all-zero MAC is a value, and two of them would
+    /// collide.</para>
+    ///
+    /// <para>Ids are copied, not renumbered, because <c>Assignment</c> and the append-only
+    /// <c>Event</c> table point at them. The index on <c>PlannedIp</c> is new: a MAC-less row is
+    /// matched on re-import by its planned address.</para>
+    /// </summary>
+    private const string V4 = """
+        CREATE TABLE Device_v4 (
+            Id          INTEGER PRIMARY KEY,
+            Mac         TEXT UNIQUE,
+            PlannedIp   TEXT,
+            PlannedMask TEXT,
+            PlannedGw   TEXT,
+            HostName    TEXT,
+            PanelRef    TEXT,
+            Role        TEXT,
+            Vendor      TEXT,
+            QuirkFlags  INTEGER NOT NULL DEFAULT 0,
+            Notes       TEXT
+        );
+
+        INSERT INTO Device_v4 (Id, Mac, PlannedIp, PlannedMask, PlannedGw, HostName, PanelRef, Role, Vendor,
+                               QuirkFlags, Notes)
+            SELECT Id, Mac, PlannedIp, PlannedMask, PlannedGw, HostName, PanelRef, Role, Vendor, QuirkFlags, Notes
+            FROM Device;
+
+        DROP TABLE Device;
+
+        ALTER TABLE Device_v4 RENAME TO Device;
+
+        CREATE INDEX IX_Device_PlannedIp ON Device(PlannedIp);
+        """;
+
+    /// <summary>
     /// Brings an open connection up to <see cref="CurrentVersion"/> and returns the version it
     /// arrived at. Each step runs in its own transaction together with the version bump, so an
     /// interrupted migration leaves the file at the last version that completed rather than
@@ -188,15 +240,38 @@ internal static class SchemaMigrations
 
         for (int i = version; i < CurrentVersion; i++)
         {
-            using SqliteTransaction transaction = connection.BeginTransaction();
+            bool rebuild = RebuildsReferencedTable.Contains(i);
+            bool enforcing = rebuild && ReadForeignKeys(connection);
 
-            Execute(connection, Steps[i]);
+            if (enforcing)
+            {
+                Execute(connection, "PRAGMA foreign_keys = OFF;");
+            }
 
-            // PRAGMA does not take parameters, hence the interpolation. The value is a loop
-            // counter, not input.
-            Execute(connection, $"PRAGMA user_version = {i + 1};");
+            try
+            {
+                using SqliteTransaction transaction = connection.BeginTransaction();
 
-            transaction.Commit();
+                Execute(connection, Steps[i]);
+
+                if (rebuild)
+                {
+                    RequireNoDanglingReferences(connection, path, i + 1);
+                }
+
+                // PRAGMA does not take parameters, hence the interpolation. The value is a loop
+                // counter, not input.
+                Execute(connection, $"PRAGMA user_version = {i + 1};");
+
+                transaction.Commit();
+            }
+            finally
+            {
+                if (enforcing)
+                {
+                    Execute(connection, "PRAGMA foreign_keys = ON;");
+                }
+            }
         }
 
         return CurrentVersion;
@@ -207,6 +282,35 @@ internal static class SchemaMigrations
         using SqliteCommand command = connection.CreateCommand();
         command.CommandText = "PRAGMA user_version;";
         return Convert.ToInt32(command.ExecuteScalar(), CultureInfo.InvariantCulture);
+    }
+
+    private static bool ReadForeignKeys(SqliteConnection connection)
+    {
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "PRAGMA foreign_keys;";
+        return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture) != 0;
+    }
+
+    /// <summary>
+    /// The check the database would have made had enforcement been on. Throwing here rolls the step
+    /// back, so a file that fails it is left at the version it arrived at, untouched.
+    /// </summary>
+    private static void RequireNoDanglingReferences(SqliteConnection connection, string path, int toVersion)
+    {
+        using SqliteCommand command = connection.CreateCommand();
+        command.CommandText = "PRAGMA foreign_key_check;";
+
+        using SqliteDataReader reader = command.ExecuteReader();
+        if (reader.Read())
+        {
+            throw new PersistenceException(
+                $"Could not upgrade '{path}' to schema version {toVersion}: the {reader.GetString(0)} table "
+                + $"refers to a {reader.GetString(2)} row that does not exist.")
+            {
+                Remediation = "The file has not been changed. It was most likely edited outside this tool - "
+                    + "open it in the version that wrote it, or send it in with the diagnostic log.",
+            };
+        }
     }
 
     private static void Execute(SqliteConnection connection, string sql)
