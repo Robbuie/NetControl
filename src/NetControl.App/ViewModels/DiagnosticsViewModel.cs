@@ -77,6 +77,7 @@ public sealed partial class DiagnosticsViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(ReadHealthCommand))]
     [NotifyCanExecuteChangedFor(nameof(CheckServicesCommand))]
     [NotifyCanExecuteChangedFor(nameof(PingPlanCommand))]
+    [NotifyCanExecuteChangedFor(nameof(PingSelectedCommand))]
     private bool _isBusy;
 
     /// <summary>One line saying what the last operation found, or what is happening now.</summary>
@@ -131,6 +132,7 @@ public sealed partial class DiagnosticsViewModel : ObservableObject
         _dispatcher = dispatcher;
         _project = project;
         _plan = plan;
+        _plan.SelectionChanged += (_, _) => PingSelectedCommand.NotifyCanExecuteChanged();
         _pinger = pinger ?? new IcmpPinger();
         _pingOptions = pingOptions ?? new PingSweepOptions();
         _healthReader = healthReader ?? new DeviceHealthReader();
@@ -226,14 +228,25 @@ public sealed partial class DiagnosticsViewModel : ObservableObject
 
     /// <summary>Pings every planned address and fills in the grid's Reach column as answers arrive.</summary>
     [RelayCommand(CanExecute = nameof(CanRun))]
-    private async Task PingPlanAsync(CancellationToken cancellationToken)
+    private Task PingPlanAsync(CancellationToken cancellationToken) =>
+        PingRowsAsync(_plan.Rows, "the plan", cancellationToken);
+
+    /// <summary>Pings the selected plan rows only - the same sweep, over the rows somebody picked.</summary>
+    [RelayCommand(CanExecute = nameof(CanPingSelected))]
+    private Task PingSelectedAsync(CancellationToken cancellationToken) =>
+        PingRowsAsync([.. _plan.Selection], "the selected rows", cancellationToken);
+
+    private bool CanPingSelected() =>
+        !IsBusy && _plan.Selection.Any(row => row.TryBuild(out DeviceRecord? record) && record?.PlannedIp is not null);
+
+    private async Task PingRowsAsync(IReadOnlyList<DeviceRowViewModel> plannedRows, string what, CancellationToken cancellationToken)
     {
         // Address to rows: two rows planning one address is a plan problem, but if it is there the
         // answer belongs on both rows rather than on whichever happened to be first.
         var rowsByAddress = new Dictionary<IPAddress, List<DeviceRowViewModel>>();
         var targets = new List<PingTarget>();
 
-        foreach (DeviceRowViewModel row in _plan.Rows)
+        foreach (DeviceRowViewModel row in plannedRows)
         {
             row.Reach = null;
 
@@ -254,7 +267,7 @@ public sealed partial class DiagnosticsViewModel : ObservableObject
 
         if (targets.Count == 0)
         {
-            SetError("Nothing in the plan has an address to ping.", "Type planned addresses into the grid first.");
+            SetError($"Nothing in {what} has an address to ping.", "Type planned addresses into the grid first.");
             return;
         }
 
@@ -269,7 +282,7 @@ public sealed partial class DiagnosticsViewModel : ObservableObject
                 }
             }
 
-            Status = $"Pinging the plan: {e.Completed} of {e.Total}...";
+            Status = $"Pinging {what}: {e.Completed} of {e.Total}...";
         });
 
         await RunAsync(
@@ -282,7 +295,7 @@ public sealed partial class DiagnosticsViewModel : ObservableObject
                 Record(
                     result.Severity,
                     EventCategory.Scan,
-                    $"Ping of the plan: {result.Summary}",
+                    $"Ping of {what}: {result.Summary}",
                     target: null,
                     new EventDetail()
                         .Add("addresses", result.Outcomes.Count)

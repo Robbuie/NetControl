@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Input;
 using NetControl.Core;
 using NetControl.Core.Cip;
 using NetControl.Core.Commissioning;
+using NetControl.Core.DeviceHealth;
 using NetControl.Core.Enip;
 using NetControl.Core.Oui;
 using NetControl.Core.Persistence;
@@ -35,6 +36,7 @@ public sealed partial class DeviceGridViewModel : ObservableObject
 {
     private readonly IOuiLookup _oui;
     private readonly StaticIpCommissioner _commissioner;
+    private readonly DeviceHealthReader? _healthReader;
 
     /// <summary>
     /// MACs that have asked for an address this session. A session fact, not a stored one - the
@@ -61,6 +63,13 @@ public sealed partial class DeviceGridViewModel : ObservableObject
     private DeviceRowViewModel? _selectedRow;
 
     /// <summary>
+    /// The rows a multi-row gesture acts on. Kept in step with <see cref="SelectedRow"/>: a new current
+    /// row that is not already part of it replaces it, and the window widens it again from the grid's
+    /// own selection straight afterwards - see <see cref="SetSelection"/>.
+    /// </summary>
+    private IReadOnlyList<DeviceRowViewModel> _selectedRows = [];
+
+    /// <summary>
     /// True while a device is being commissioned. One at a time, deliberately: this writes to live
     /// equipment and the log has to read as an account of one operation, not two interleaved.
     /// </summary>
@@ -69,6 +78,8 @@ public sealed partial class DeviceGridViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(EnableBootpCommand))]
     [NotifyCanExecuteChangedFor(nameof(EnableDhcpCommand))]
     [NotifyCanExecuteChangedFor(nameof(SetStaticAllCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SetStaticSelectedCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CheckSelectedCommand))]
     [NotifyPropertyChangedFor(nameof(CanHandBack))]
     private bool _isCommissioning;
 
@@ -113,13 +124,14 @@ public sealed partial class DeviceGridViewModel : ObservableObject
     [ObservableProperty]
     private string? _errorRemediation;
 
-    public DeviceGridViewModel(IOuiLookup oui, StaticIpCommissioner? commissioner = null)
+    public DeviceGridViewModel(IOuiLookup oui, StaticIpCommissioner? commissioner = null, DeviceHealthReader? healthReader = null)
     {
         ArgumentNullException.ThrowIfNull(oui);
 
         _oui = oui;
         _commissioner = commissioner ?? new StaticIpCommissioner();
         _commissioner.Progress += OnCommissionProgress;
+        _healthReader = healthReader;
 
         // The toolbar shows the per-device and whole-plan buttons only once there is a plan to act
         // on; an empty plan gets a panel that says how to start one instead.
@@ -179,6 +191,8 @@ public sealed partial class DeviceGridViewModel : ObservableObject
 
         _project = project;
         _seen.Clear();
+        _removed.Clear();
+        OnPropertyChanged(nameof(CanUndoRemove));
         ClearError();
         Reload();
     }
@@ -221,6 +235,7 @@ public sealed partial class DeviceGridViewModel : ObservableObject
 
         OnPropertyChanged(nameof(ServableCount));
         SetStaticAllCommand.NotifyCanExecuteChanged();
+        RaiseFilterChanged();
     }
 
     /// <summary>
@@ -316,41 +331,88 @@ public sealed partial class DeviceGridViewModel : ObservableObject
     [RelayCommand]
     private void AddDevice() => SelectedRow = NewRow();
 
+    /// <summary>
+    /// Removes the selected rows - all of them when several are selected, after
+    /// <see cref="ConfirmRemove"/> has said yes. What was removed can be put back with
+    /// <see cref="UndoRemoveCommand"/>.
+    /// </summary>
     [RelayCommand(CanExecute = nameof(CanRemoveDevice))]
     private void RemoveDevice()
     {
-        if (SelectedRow is not { } row)
+        IReadOnlyList<DeviceRowViewModel> rows = Selection;
+        if (rows.Count == 0)
         {
             return;
         }
 
-        // A row that was never written has nothing to remove from the file, and refusing to drop
-        // an empty row somebody added by mistake would be absurd.
-        if (row.Id != 0 && _project is not null)
+        if (rows.Count > 1 && (ConfirmRemove is not { } confirm || !confirm(rows)))
         {
-            try
-            {
-                // Deleted by row id, not by the MAC in the cell. A user who mistyped over a good MAC
-                // and then hit Remove means "get rid of this row", and a row awaiting its MAC has no
-                // MAC to be deleted by at all.
-                _project.Devices.Delete(row.Id);
-            }
-            catch (PersistenceException ex)
-            {
-                // The commissioning record already points at this device. Say so and leave the row
-                // alone - the record has to keep meaning what it says.
-                SetError(ex.Message, ex.Remediation);
-                row.Problem = ex.Message;
-                return;
-            }
+            return;
         }
 
-        row.Edited -= OnRowEdited;
-        Rows.Remove(row);
+        var removed = new List<DeviceRecord>();
+        string? failure = null;
+        string? remediation = null;
+
+        foreach (DeviceRowViewModel row in rows.ToList())
+        {
+            // A row that was never written has nothing to remove from the file, and refusing to drop
+            // an empty row somebody added by mistake would be absurd.
+            if (row.Id != 0 && _project is not null)
+            {
+                try
+                {
+                    DeviceRecord? stored = _project.Devices.Get(row.Id);
+
+                    // Deleted by row id, not by the MAC in the cell. A user who mistyped over a good MAC
+                    // and then hit Remove means "get rid of this row", and a row awaiting its MAC has no
+                    // MAC to be deleted by at all.
+                    _project.Devices.Delete(row.Id);
+
+                    if (stored is not null)
+                    {
+                        removed.Add(stored with { Id = 0 });
+                    }
+                }
+                catch (PersistenceException ex)
+                {
+                    // The commissioning record already points at this device. Say so and leave the row
+                    // alone - the record has to keep meaning what it says.
+                    failure = ex.Message;
+                    remediation = ex.Remediation;
+                    row.Problem = ex.Message;
+                    continue;
+                }
+            }
+
+            row.Edited -= OnRowEdited;
+            Rows.Remove(row);
+        }
+
         SelectedRow = null;
-        ClearError();
+        SetSelection([]);
+
+        if (removed.Count > 0)
+        {
+            _removed.Clear();
+            _removed.AddRange(removed);
+            OnPropertyChanged(nameof(CanUndoRemove));
+            UndoRemoveCommand.NotifyCanExecuteChanged();
+        }
+
+        if (failure is not null)
+        {
+            SetError(
+                rows.Count > 1 ? $"Not every row could be removed. {failure}" : failure,
+                remediation);
+        }
+        else
+        {
+            ClearError();
+        }
 
         OnPropertyChanged(nameof(ServableCount));
+        SetStaticAllCommand.NotifyCanExecuteChanged();
         PlanChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -437,7 +499,33 @@ public sealed partial class DeviceGridViewModel : ObservableObject
     /// hand-back's does: a view model that puts a dialog on the screen cannot be tested.</para>
     /// </summary>
     [RelayCommand(CanExecute = nameof(CanSetStaticAll))]
-    private async Task SetStaticAllAsync(CancellationToken cancellationToken)
+    private Task SetStaticAllAsync(CancellationToken cancellationToken) =>
+        RunBulkAsync(ReadyForBulk(), "all ready devices", "in a run over the plan", "setStaticAll", cancellationToken);
+
+    /// <summary>
+    /// Set static on the selected rows that can take it - the same run as <see cref="SetStaticAllAsync"/>,
+    /// the same confirmation naming every device, over the rows somebody picked instead of the whole
+    /// plan. A row already Verified is included when it is selected: picking it is asking for it.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanSetStaticSelected))]
+    private Task SetStaticSelectedAsync(CancellationToken cancellationToken) =>
+        RunBulkAsync(ReadyInSelection(), "the selected devices", "in a run over the selection", "setStaticSelected", cancellationToken);
+
+    /// <summary>The selected rows Set static could write: saved, servable, with an address and a mask.</summary>
+    public IReadOnlyList<DeviceRowViewModel> ReadyInSelection() =>
+        [.. Selection.Where(row => row.Id > 0 && row.IsServable
+            && row.TryBuild(out DeviceRecord? record)
+            && record?.PlannedIp is not null && record.PlannedMask is not null)];
+
+    private bool CanSetStaticSelected() =>
+        !IsCommissioning && !IsChecking && _project is not null && Selection.Count > 1 && ReadyInSelection().Count > 0;
+
+    private async Task RunBulkAsync(
+        IReadOnlyList<DeviceRowViewModel> candidates,
+        string what,
+        string inARun,
+        string operation,
+        CancellationToken cancellationToken)
     {
         if (_project is null)
         {
@@ -446,7 +534,7 @@ public sealed partial class DeviceGridViewModel : ObservableObject
 
         var work = new List<(DeviceRowViewModel Row, StaticIpRequest Request)>();
 
-        foreach (DeviceRowViewModel row in ReadyForBulk())
+        foreach (DeviceRowViewModel row in candidates)
         {
             if (row.TryBuild(out DeviceRecord? device) && BuildStaticRequest(device!) is { } request)
             {
@@ -456,13 +544,17 @@ public sealed partial class DeviceGridViewModel : ObservableObject
 
         if (work.Count == 0)
         {
-            BulkStatus = "Nothing to do: every complete row is already Verified.";
+            BulkStatus = operation == "setStaticAll"
+                ? "Nothing to do: every complete row is already Verified."
+                : "Nothing to do: none of the selected rows has an address and a mask to write.";
             return;
         }
 
         if (ConfirmBulk is not { } confirm || !confirm([.. work.Select(w => w.Row)]))
         {
-            BulkStatus = "Set static on all was not confirmed. Nothing was sent.";
+            BulkStatus = operation == "setStaticAll"
+                ? "Set static on all was not confirmed. Nothing was sent."
+                : "Set static on the selected devices was not confirmed. Nothing was sent.";
             return;
         }
 
@@ -479,7 +571,7 @@ public sealed partial class DeviceGridViewModel : ObservableObject
 
             Record(EventSeverity.Info, row,
                 $"Set static requested for {row.Mac} at {e.Request.DeviceAddress} (device {e.Index + 1} of {e.Total} "
-                + "in a run over the plan" + (AllowDeviceReset ? ", reset allowed)." : ", no reset)."));
+                + inARun + (AllowDeviceReset ? ", reset allowed)." : ", no reset)."));
         };
 
         bulk.DeviceFinished += (_, e) => Apply(work[e.Index].Row, e.Result!);
@@ -491,7 +583,7 @@ public sealed partial class DeviceGridViewModel : ObservableObject
         try
         {
             Record(EventSeverity.Info, row: null,
-                $"Set static on all ready devices: {work.Count} device(s), one at a time: "
+                $"Set static on {what}: {work.Count} device(s), one at a time: "
                 + string.Join(", ", work.Select(w => $"{w.Row.Mac} at {w.Request.DeviceAddress}")) + ".");
 
             BulkCommissionResult result = await bulk.RunAsync([.. work.Select(w => w.Request)], cancellationToken);
@@ -505,7 +597,7 @@ public sealed partial class DeviceGridViewModel : ObservableObject
                 row: null,
                 result.Summary,
                 new EventDetail()
-                    .Add("operation", "setStaticAll")
+                    .Add("operation", operation)
                     .Add("devices", work.Count)
                     .Add("verified", result.Verified)
                     .Add("notVerified", result.NotVerified)
@@ -820,7 +912,7 @@ public sealed partial class DeviceGridViewModel : ObservableObject
     }
 
     private bool CanSetStaticAll() =>
-        !IsCommissioning
+        !IsCommissioning && !IsChecking
         && _project is not null
         && Rows.Any(row => row.Id > 0 && row.IsServable && row.State != DeviceState.Verified);
 
@@ -850,7 +942,7 @@ public sealed partial class DeviceGridViewModel : ObservableObject
     }
 
     private bool CanSetStatic() =>
-        !IsCommissioning
+        !IsCommissioning && !IsChecking
         && _project is not null
         && SelectedRow is { IsServable: true, Id: > 0 };
 
@@ -936,7 +1028,7 @@ public sealed partial class DeviceGridViewModel : ObservableObject
         return null;
     }
 
-    private bool CanRemoveDevice() => SelectedRow is not null;
+    private bool CanRemoveDevice() => Selection.Count > 0;
 
     private DeviceRowViewModel NewRow()
     {

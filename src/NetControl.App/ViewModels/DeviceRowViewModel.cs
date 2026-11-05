@@ -99,6 +99,21 @@ public sealed partial class DeviceRowViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(ReachIsSilent))]
     private PingOutcome? _reach;
 
+    /// <summary>
+    /// What the last read-only check found on the device, this session: "matches", "differs", or
+    /// "no answer". Not stored and not a state - see <see cref="DeviceGridViewModel"/>'s check.
+    /// </summary>
+    [ObservableProperty]
+    private string? _checkText;
+
+    /// <summary>The sentence behind <see cref="CheckText"/>.</summary>
+    [ObservableProperty]
+    private string? _checkTooltip;
+
+    /// <summary>True when the check found the device disagreeing with the plan, or not answering.</summary>
+    [ObservableProperty]
+    private bool _checkIsBad;
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasProblem))]
     [NotifyPropertyChangedFor(nameof(IsServable))]
@@ -241,6 +256,48 @@ public sealed partial class DeviceRowViewModel : ObservableObject
         // Once, at the end, rather than nine times on the way through.
         Revalidate();
     }
+
+    /// <summary>
+    /// Sets several cells as one edit: written to the file once, not once per cell. A null leaves
+    /// that cell as it is. Used by paste, by duplicate and by setting a value on many rows - each of
+    /// which would otherwise store a half-filled row on the first cell and correct it on the next.
+    /// </summary>
+    internal void ApplyCells(
+        string? mac = null,
+        string? ip = null,
+        string? mask = null,
+        string? gateway = null,
+        string? hostName = null,
+        string? panelRef = null,
+        string? role = null,
+        string? notes = null)
+    {
+        _loading = true;
+
+        try
+        {
+            MacText = mac ?? MacText;
+            IpText = ip ?? IpText;
+            MaskText = mask ?? MaskText;
+            GatewayText = gateway ?? GatewayText;
+            HostName = hostName ?? HostName;
+            PanelRef = panelRef ?? PanelRef;
+            Role = role ?? Role;
+            Notes = notes ?? Notes;
+        }
+        finally
+        {
+            _loading = false;
+        }
+
+        OnPropertyChanged(new PropertyChangedEventArgs(nameof(IsBlank)));
+        Revalidate();
+        Edited?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>The eight editable cells as they stand, in the grid's column order - what Copy writes.</summary>
+    public IReadOnlyList<string?> Cells =>
+        [MacText, IpText, MaskText, GatewayText, HostName, PanelRef, Role, Notes];
 
     /// <summary>
     /// Re-reads every cell. Called on each edit, and by the grid after a write so the row reflects

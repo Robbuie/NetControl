@@ -1,3 +1,4 @@
+using NetControl.App.AdapterSetup;
 using NetControl.App.Diagnostics;
 using NetControl.App.Serving;
 using NetControl.App.ViewModels;
@@ -80,7 +81,9 @@ public sealed class AppHost : IDisposable
             // The TFTP tab's folder, vantage and probe server, remembered per PC in their own file.
             tftpSettings: TftpSettingsStore.Load(_trace),
             saveTftpSettings: settings => TftpSettingsStore.Save(settings, _trace),
-            sweep: sweep);
+            sweep: sweep,
+            adapterConfigurator: new NetshAdapterConfigurator(_trace),
+            adapterSnapshots: new AdapterSnapshotFile(trace: _trace));
 
         // Raised on a background thread by design, so the view model marshals. Subscribing before
         // Start means the first inventory arrives through the same path as every later one.

@@ -7,6 +7,7 @@ using System.Net;
 using System.Text;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using NetControl.App.AdapterSetup;
 using NetControl.App.Composition;
 using NetControl.App.Diagnostics;
 using NetControl.App.Serving;
@@ -46,6 +47,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
 {
     private readonly IUiDispatcher _dispatcher;
     private readonly INicInventory _nics;
+    private readonly IAdapterConfigurator _adapterConfigurator;
+    private readonly IAdapterSnapshotStore _adapterSnapshots;
     private readonly IPreflight _preflight;
     private readonly ServerController _server;
     private readonly StaticMapPolicy _policy;
@@ -183,7 +186,9 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         DeviceHealthReader? healthReader = null,
         ServiceProbe? serviceProbe = null,
         ICaptureProvider? capture = null,
-        SubnetSweep? sweep = null)
+        SubnetSweep? sweep = null,
+        IAdapterConfigurator? adapterConfigurator = null,
+        IAdapterSnapshotStore? adapterSnapshots = null)
     {
         ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentNullException.ThrowIfNull(nics);
@@ -205,6 +210,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _discovery = discovery;
         _sweep = sweep;
         _buildStamp = buildStamp;
+        _adapterConfigurator = adapterConfigurator ?? new NetshAdapterConfigurator();
+        _adapterSnapshots = adapterSnapshots ?? new InMemoryAdapterSnapshotStore();
 
         InterfaceBar = new InterfaceBarViewModel(oui, _time, listenPort);
 
@@ -320,6 +327,28 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     public string VersionText => $"v{NetControl.App.Diagnostics.BuildInfo.Version}";
 
     public bool IsRunning => RunState is ServerRunState.Listening or ServerRunState.Starting;
+
+    /// <summary>
+    /// The adapter-address window's view model, for the selected adapter, or null with none selected.
+    /// Made fresh each time the window opens, so it reads the adapter and the plan as they are then.
+    /// </summary>
+    public AdapterSetupViewModel? CreateAdapterSetup()
+    {
+        if (InterfaceBar.SelectedAdapter?.Nic is not { } nic)
+        {
+            return null;
+        }
+
+        return new AdapterSetupViewModel(
+            nic,
+            _adapterConfigurator,
+            _adapterSnapshots,
+            () => _nics.Snapshot(),
+            _project,
+            () => IsRunning,
+            RefreshAdapters,
+            _time);
+    }
 
     /// <summary>Re-reads the adapter inventory. Safe to call from any thread.</summary>
     public void RefreshAdapters()

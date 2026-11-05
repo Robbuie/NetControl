@@ -154,6 +154,14 @@ public static class PlanCsv
     }
 
     /// <summary>
+    /// The column a header name means, by the same spellings a CSV header accepts. False for a name
+    /// this tool does not know. Shared with <see cref="PlanClipboard"/>, so a block copied out of a
+    /// spreadsheet is read by exactly the rules a file is.
+    /// </summary>
+    internal static bool TryColumn(string? name, out PlanCsvColumn column) =>
+        ColumnNames.TryGetValue(Normalise(name ?? string.Empty), out column);
+
+    /// <summary>
     /// Which column each field of the header is. Unrecognised names become
     /// <see cref="PlanCsvColumn.Ignored"/>; a repeated recognised name is refused, because the
     /// alternative is one of the two silently winning.

@@ -42,6 +42,27 @@ public sealed class DiagnosticsViewModelTests : IDisposable
         Assert.Contains("1 answered, 1 did not", row.Message, StringComparison.Ordinal);
     }
 
+    /// <summary>Ping on a selection pings those rows and leaves the rest of the Reach column alone.</summary>
+    [Fact]
+    public async Task PingingTheSelectionPingsOnlyThoseRows()
+    {
+        var pinger = new FakePinger().Answers("192.168.1.51", PingStatus.Replied);
+        (DiagnosticsViewModel diagnostics, DeviceGridViewModel grid) = Build(pinger);
+
+        DeviceRowViewModel picked = Planned(grid, "00:1D:9C:C7:B0:70", "192.168.1.51");
+        DeviceRowViewModel other = Planned(grid, "00:1D:9C:C7:B0:71", "192.168.1.52");
+
+        grid.SelectedRow = picked;
+        Assert.True(diagnostics.PingSelectedCommand.CanExecute(null));
+
+        await diagnostics.PingSelectedCommand.ExecuteAsync(null);
+
+        Assert.Equal(new[] { IPAddress.Parse("192.168.1.51") }, pinger.Asked.Distinct());
+        Assert.Equal("2 ms", picked.ReachText);
+        Assert.Equal(string.Empty, other.ReachText);
+        Assert.Contains("Ping of the selected rows", Assert.Single(_project.Events.All()).Message, StringComparison.Ordinal);
+    }
+
     /// <summary>A row with no address is skipped, not refused - a plan being typed is not an error.</summary>
     [Fact]
     public async Task SkipsRowsWithNoAddressYet()

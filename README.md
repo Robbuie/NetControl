@@ -178,6 +178,32 @@ is a warning, red is blocked. **Listener > Re-check port and firewall** runs the
 If a request arrives on a different adapter from the one you picked, the bar says so - which is
 usually the answer to "why is nothing happening".
 
+### Setting this laptop's address
+
+**Set address...** beside the Adapter list (also **Tools > Set adapter address...**) puts an IP
+address, mask and gateway on the selected adapter - your laptop's, not a device's.
+
+- **Profile** lists one entry for every subnet in the plan, with the laptop at the host number on the
+  right (250 unless you change it - kept in the project); a number a device is planned at is stepped
+  down from. Below those are profiles saved in the project with **Save as** - "Shop bench", say - so
+  whoever opens the project next has them.
+- **Change**: *Replace* makes the adapter static with only this address. *Add* keeps the address it
+  has and adds this one - one cable, two subnets; Windows only allows it on an adapter that is
+  already static. *DHCP* puts it back to automatic.
+- **Leave the gateway empty** on a commissioning cable. A gateway adds a default route; if you do give
+  one it is set with a high route metric so Wi-Fi keeps the internet.
+- The exact `netsh` lines are shown before anything runs, and **Apply** confirms them. NetControl
+  runs them as you first - members of the Windows *Network Configuration Operators* group need no
+  more - and only if Windows says administrator rights are needed does it ask, once, with the UAC
+  prompt. The change is only reported done when the adapter shows the new address.
+- It refuses an address a device in the plan is meant to have, a gateway off the subnet, an address
+  another adapter already holds, and any change while Watch or Serve is running.
+- **Restore.** The adapter's settings from before NetControl first changed it are kept on this laptop
+  (`adapter-snapshots.json`), through any further changes, until **Restore** puts them back - the
+  office network, typically. **Forget** stops keeping them without changing the adapter.
+
+Every change, and what it ran, is written to the project's record.
+
 ## Projects and the plan
 
 ### Project files
@@ -209,7 +235,8 @@ still on screen, for example `'192.168.1.999' is not an IPv4 IP address`.
 | **Host name, Panel, Role** | Your names for it. The Device column in the log uses Role, then Host name, then Panel. |
 | **Vendor** | Looked up from the IEEE registry when the MAC is entered. |
 | **State** | Planned, Seen (asked for an address), Served (an address was sent), or Verified (read back off the device). |
-| **Reach** | Filled in by **Ping plan**. Silence is amber, not red - plenty of drives and I/O adapters ignore ping. |
+| **Reach** | Filled in by **Ping plan** or **Ping**. Silence is amber, not red - plenty of drives and I/O adapters ignore ping. |
+| **Check** | Filled in by **Check**: *matches*, *differs* or *no answer*. Hover for exactly what differs. |
 | **Quirks** | What this device is known to do wrong. See [Device quirks](#device-quirks). |
 | **Notes** | Anything else. |
 
@@ -217,8 +244,33 @@ A **red** row means the value could not be stored. An **amber** row stored fine 
 served yet - usually a MAC with no address so far. That is a normal state while you work, not an
 error.
 
-Right-click a row, or use **More** on the toolbar, for **Device quirks...**, **Diagnose this device**
-and **Read Modbus registers**. **More** also holds **Enable BOOTP/DHCP**.
+#### Working with rows
+
+Select several rows with **Ctrl+click** or **Shift+click** (or **Ctrl+A** for every row shown). The
+toolbar acts on the selection, and **right-clicking a row** gives the same actions in one menu:
+
+| Action | What it does |
+|---|---|
+| **Set static** / **Set static on selected...** | One row: as before. Several: the same run as Set static on all, over just the selected rows, after a confirmation that lists them. |
+| **Check** (read only) | Reads each selected device's address, mask, gateway and BOOTP/DHCP setting over EtherNet/IP and compares them with the plan - including whether the MAC it reports is the row's. **Nothing is written** and the row's State does not change. For a panel somebody else may have commissioned. |
+| **Ping** (F5) | Pings the selected rows only. |
+| **Duplicate with next IP** (Ctrl+D) | Adds a row after this one at the next address on its subnet the plan does not already have, with the same mask, gateway, panel and role, awaiting its MAC. |
+| **Set mask, gateway, panel...** | The same value on every selected row - typically the mask and gateway for a whole cell. Empty boxes leave each row as it is. |
+| **Clear MAC** | Takes the MAC off the selected rows so each waits for its MAC again at its planned address - for a device swapped on the panel. |
+| **Remove** (Del) | Removes the selected rows. Several at once are confirmed first. **Undo remove** (Ctrl+Z) puts them back. A row the commissioning record already points at is kept. |
+| **Copy rows** (Ctrl+C) | The selected rows as tab-separated text with a header - pastes straight into Excel. |
+| **Paste rows** (Ctrl+V) | Adds rows copied from Excel or another plan, each as if typed: a bad value turns that row red, and nothing already in the plan is overwritten. Columns are matched by header name when the first line is a header, otherwise taken in the grid's order (MAC, IP, mask, gateway...). A block whose first column is all IP addresses - address, mask and gateway copied out of the workbook - starts at the IP column. |
+| **Copy IP / Copy MAC**, **Open web page**, **Diagnose**, **Read Modbus registers**, **Device quirks...** | As they say. Open web page opens `http://<planned address>/`. |
+| **History...** | Everything the project's record holds against this device: served, set static, checked, quirks learned. |
+| **Enable BOOTP/DHCP** | See [Enable BOOTP/DHCP](#enable-bootpdhcp). |
+
+The keys work when the grid has focus and no cell is being typed into; while you are typing in a
+cell, Delete and Ctrl+C/V do what they always do in a text box.
+
+**Find** above the grid shows only rows with that text in any cell, and the list beside it narrows
+by state: Awaiting MAC, Not servable, Problems (red rows, and devices Check found disagreeing), Not
+verified, Verified. The **Whole plan** buttons still act on the whole plan; select what is shown to
+act on just that.
 
 **An empty plan** shows a short panel instead of the grid's buttons, because every one of them needs
 a device to act on. It offers the three ways to start: watch for requests, **Scan the network**, or
@@ -606,8 +658,11 @@ OK saves; Cancel puts back what was there.
 | **File** | New project, Open project, Save as, Import / Export plan CSV, Export commissioning report, Exit |
 | **Listener** | Watch, Serve, Stop, Re-check port and firewall, DHCP boot options, Reply by per-socket bind |
 | **View** | Appearance |
-| **Tools** | Subnet calculator, Ping the plan, Diagnostics |
+| **Tools** | Set adapter address, Subnet calculator, Ping the plan, Diagnostics, Fill in awaiting MACs from the scan |
 | **Help** | User guide (F1), Check for updates, Releases page, Open the diagnostic log folder, About NetControl |
+
+In the plan grid: **Del** remove, **Ctrl+Z** undo remove, **Ctrl+C** / **Ctrl+V** copy and paste
+rows, **Ctrl+D** duplicate with next IP, **F5** ping the selected rows.
 
 **F1** opens this guide from anywhere in the main window. In the guide, type in the search box to
 narrow the contents to the sections that mention a word.

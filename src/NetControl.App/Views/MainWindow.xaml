@@ -61,6 +61,8 @@
                     ToolTip="Theme, accent colour and how much room the chrome takes. Applied as you choose, saved when you press OK." />
         </MenuItem>
         <MenuItem Header="_Tools">
+          <MenuItem Header="Set adapter _address..." Click="OnAdapterSetup"
+                    ToolTip="This laptop's IP address, mask and gateway on the selected adapter." />
           <MenuItem Header="_Subnet calculator..." Click="OnSubnetCalculator"
                     ToolTip="Network, broadcast, host range and mask for an address and prefix - and whether another address is on it. Opens on the selected adapter's own subnet." />
           <Separator />
@@ -165,6 +167,11 @@
                 </DataTemplate>
               </ComboBox.ItemTemplate>
             </ComboBox>
+            <!-- This laptop's own address on the selected adapter: from the plan's subnets, a saved
+                 profile, or typed; and back to what it was. -->
+            <Button Content="Set address..." Margin="0,0,12,0" VerticalAlignment="Center"
+                    Click="OnAdapterSetup"
+                    ToolTip="Sets this laptop's IP address, mask and gateway on the selected adapter - from one of the plan's subnets, a profile saved in the project, or typed - and puts it back afterwards." />
 
             <!-- Serve is armed separately from being started. Two deliberate actions, because a
                  rogue DHCP server on a plant network is a genuinely serious incident. -->
@@ -363,7 +370,10 @@
           <Button Content="Remove" Command="{Binding Plan.RemoveDeviceCommand}"
                   Visibility="{Binding Plan.HasRows, Converter={StaticResource BoolToVisible}}"
                   ToolTipService.ShowOnDisabled="True"
-                  ToolTip="Removes the selected row. Select a row first." />
+                  ToolTip="Removes the selected row(s) from the plan (Del). Several at once are confirmed first. Undo puts them back." />
+          <Button Content="Undo remove" Command="{Binding Plan.UndoRemoveCommand}"
+                  Visibility="{Binding Plan.CanUndoRemove, Converter={StaticResource BoolToVisible}}"
+                  ToolTip="Puts back the row(s) the last Remove took out (Ctrl+Z)." />
 
           <!-- The selected device. The half of the job BOOTP does not do: an address served over
                BOOTP lasts until the next power cycle, because the device is still a BOOTP client;
@@ -373,14 +383,34 @@
           <StackPanel Orientation="Horizontal"
                       Visibility="{Binding Plan.HasRows, Converter={StaticResource BoolToVisible}}">
             <Border Style="{StaticResource ToolbarSeparator}" Height="20" />
-            <TextBlock Style="{StaticResource Muted}" Text="Selected device:" VerticalAlignment="Center"
-                       Margin="0,0,6,0" />
+            <TextBlock Style="{StaticResource Muted}" VerticalAlignment="Center" Margin="0,0,6,0">
+              <Run Text="Selected" />
+              <Run Text="{Binding Plan.SelectionCount, Mode=OneWay, StringFormat='({0}):'}" />
+            </TextBlock>
 
+            <!-- One device: the single Set static. Several: the same run Set static on all makes, over
+                 the selection, behind the same confirmation that names every device. -->
             <Button Content="Set static (disable BOOTP/DHCP)"
                     MinWidth="96"
                     Command="{Binding Plan.SetStaticCommand}"
+                    Visibility="{Binding Plan.IsSingleSelection, Converter={StaticResource BoolToVisible}}"
                     ToolTipService.ShowOnDisabled="True"
                     ToolTip="Writes the planned address into the selected device and disables BOOTP/DHCP, then reads it back to confirm it took. Sent only to that one device. Needs a complete row (MAC, address and mask) selected." />
+            <Button Content="Set static on selected..."
+                    MinWidth="96"
+                    Command="{Binding Plan.SetStaticSelectedCommand}"
+                    Visibility="{Binding Plan.HasMultipleSelected, Converter={StaticResource BoolToVisible}}"
+                    ToolTipService.ShowOnDisabled="True"
+                    ToolTip="Set static on every selected row that has a MAC, address and mask, one device at a time, after a confirmation that lists them." />
+            <Button Content="Check"
+                    Margin="4,0,0,0"
+                    Command="{Binding Plan.CheckSelectedCommand}"
+                    ToolTipService.ShowOnDisabled="True"
+                    ToolTip="Reads each selected device's address, mask, gateway and BOOTP/DHCP setting over EtherNet/IP and compares them with the plan. Read only - nothing is written, and the row's state is not changed." />
+            <Button Content="Ping"
+                    Command="{Binding Diagnostics.PingSelectedCommand}"
+                    ToolTipService.ShowOnDisabled="True"
+                    ToolTip="Pings the selected rows' planned addresses and fills in the Reach column (F5)." />
 
             <!-- Its own control, because on a running line resetting a module is an outage and
                  nobody should discover they authorised one by pressing the button next to it. -->
@@ -400,12 +430,28 @@
                         IsEnabled="{Binding Plan.HasSelection}"
                         ToolTipService.ShowOnDisabled="True"
                         ToolTip="Other things to do with the selected device. Select a row first.">
+                <MenuItem Header="Duplicate with _next IP" Click="OnDuplicateNext" InputGestureText="Ctrl+D"
+                          ToolTip="Adds a row after this one at the next free address on its subnet, with the same mask, gateway, panel and role, awaiting its MAC." />
+                <MenuItem Header="_Set mask, gateway, panel..." Click="OnSetOnSelection"
+                          ToolTip="The same value on every selected row - typically the mask and gateway for a whole cell. Plan only." />
+                <MenuItem Header="Clear _MAC (awaiting MAC again)" Click="OnClearMac"
+                          ToolTip="Takes the MAC off the selected rows so each waits for its MAC again at its planned address - for a device swapped on the panel." />
+                <Separator />
+                <MenuItem Header="_Copy rows" Click="OnCopyPlanRows" InputGestureText="Ctrl+C"
+                          ToolTip="The selected rows as tab-separated text, header first - pastes straight into Excel." />
+                <MenuItem Header="_Paste rows" Click="OnPastePlanRows" InputGestureText="Ctrl+V"
+                          ToolTip="Adds rows copied from Excel or another plan. Each goes in as if typed; nothing is overwritten." />
+                <Separator />
                 <MenuItem Header="_Diagnose this device" Click="OnDiagnoseSelectedRow"
                           ToolTip="Opens the Diagnostics tab on the selected device: ping, its own link and fault counters over EtherNet/IP, and which services it offers. Nothing is sent until you press a button there." />
+                <MenuItem Header="Open _web page" Click="OnOpenPlanRowWebPage"
+                          ToolTip="Opens http://planned-address in the browser. Many adapters and drives serve their own pages." />
                 <MenuItem Header="_Read Modbus registers" Click="OnModbusSelectedRow"
                           ToolTip="Opens the Modbus tab on this device's planned address. Read-only." />
                 <MenuItem Header="Device _quirks..." Click="OnEditQuirks"
                           ToolTip="What this device is known to do wrong, and what NetControl does about each." />
+                <MenuItem Header="_History..." Click="OnShowHistory"
+                          ToolTip="Everything the project's record holds against this device: served, set static, checked, learned." />
                 <Separator />
                 <MenuItem Header="Enable _BOOTP on the selected device..."
                           IsEnabled="{Binding Plan.CanHandBack}"
@@ -457,6 +503,25 @@
                      Visibility="{Binding Plan.BulkStatus, Converter={StaticResource NotNullToVisible}}" />
         </WrapPanel>
 
+        <!-- Find rows: free text over every cell, and how far a row has got. The whole-plan actions
+             still act on the whole plan; select what is shown (Ctrl+A) to act on just that. -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,6"
+                    Visibility="{Binding Plan.HasRows, Converter={StaticResource BoolToVisible}}">
+          <TextBlock Style="{StaticResource Muted}" Text="Find:" VerticalAlignment="Center" Margin="0,0,6,0" />
+          <TextBox Width="200" VerticalAlignment="Center"
+                   Text="{Binding Plan.FilterText, UpdateSourceTrigger=PropertyChanged}"
+                   ToolTip="Shows rows with this text in any cell - MAC, address, host name, panel, role, notes or vendor." />
+          <ComboBox Width="150" Margin="8,0,0,0" VerticalAlignment="Center"
+                    ItemsSource="{x:Static vm:PlanRowFilters.All}"
+                    SelectedValue="{Binding Plan.RowFilter}"
+                    SelectedValuePath="Value"
+                    DisplayMemberPath="Label" />
+          <TextBlock Style="{StaticResource Muted}" Margin="10,0,0,0" VerticalAlignment="Center"
+                     Text="{Binding Plan.FilterSummary}" />
+          <Button Content="Show all" Margin="8,0,0,0" Command="{Binding Plan.ClearFilterCommand}"
+                  Visibility="{Binding Plan.IsFiltering, Converter={StaticResource BoolToVisible}}" />
+        </StackPanel>
+
         <Border DockPanel.Dock="Bottom" Margin="0,6,0,8" Padding="8,5"
                 Background="{DynamicResource notice-bad}"
                 BorderBrush="{DynamicResource bad}"
@@ -473,12 +538,15 @@
         </Border>
 
         <Grid>
-        <DataGrid ItemsSource="{Binding Plan.Rows}"
+        <DataGrid x:Name="PlanGrid"
+                  ItemsSource="{Binding Plan.Rows}"
                   SelectedItem="{Binding Plan.SelectedRow}"
+                  SelectionChanged="OnPlanSelectionChanged"
+                  PreviewKeyDown="OnPlanGridKeyDown"
                   AutoGenerateColumns="False"
                   CanUserAddRows="False"
                   CanUserDeleteRows="False"
-                  SelectionMode="Single"
+                  SelectionMode="Extended"
                   SelectionUnit="FullRow"
                   HeadersVisibility="Column"
                   GridLinesVisibility="Horizontal"
@@ -566,6 +634,23 @@
               </DataGridTextColumn.ElementStyle>
             </DataGridTextColumn>
 
+            <!-- The last read-only Check, this session. Red when the device disagrees with the plan or
+                 does not answer, because unlike silence to a ping that is something to act on. -->
+            <DataGridTextColumn Header="Check" Width="80" IsReadOnly="True"
+                                Binding="{Binding CheckText, Mode=OneWay}">
+              <DataGridTextColumn.ElementStyle>
+                <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                  <Setter Property="ToolTip" Value="{Binding CheckTooltip}" />
+                  <Setter Property="Foreground" Value="{DynamicResource good}" />
+                  <Style.Triggers>
+                    <DataTrigger Binding="{Binding CheckIsBad}" Value="True">
+                      <Setter Property="Foreground" Value="{DynamicResource bad}" />
+                    </DataTrigger>
+                  </Style.Triggers>
+                </Style>
+              </DataGridTextColumn.ElementStyle>
+            </DataGridTextColumn>
+
             <!-- What this device is known to do wrong - learned from a Set static or ticked by hand.
                  Read-only here; the editor is on the row's right-click menu, because each flag needs
                  its sentence beside it to be chosen honestly. -->
@@ -582,13 +667,37 @@
             <DataGridTextColumn Header="Notes" Width="220" Binding="{Binding Notes}" />
           </DataGrid.Columns>
 
+          <!-- Everything the toolbar does to the selection, where the pointer already is. Each item is
+               the toolbar's own command or handler, so the two cannot disagree about when it works. -->
           <DataGrid.ContextMenu>
             <ContextMenu>
+              <MenuItem Header="Set _static (disable BOOTP/DHCP)" Command="{Binding Plan.SetStaticCommand}" FontWeight="Bold"
+                        Visibility="{Binding Plan.IsSingleSelection, Converter={StaticResource BoolToVisible}}" />
+              <MenuItem Header="Set _static on selected..." Command="{Binding Plan.SetStaticSelectedCommand}" FontWeight="Bold"
+                        Visibility="{Binding Plan.HasMultipleSelected, Converter={StaticResource BoolToVisible}}" />
+              <MenuItem Header="C_heck against plan (read only)" Command="{Binding Plan.CheckSelectedCommand}" />
+              <MenuItem Header="_Ping" Command="{Binding Diagnostics.PingSelectedCommand}" InputGestureText="F5" />
+              <Separator />
+              <MenuItem Header="Duplicate with _next IP" Click="OnDuplicateNext" InputGestureText="Ctrl+D" />
+              <MenuItem Header="Set mask, _gateway, panel..." Click="OnSetOnSelection" />
+              <MenuItem Header="Clear _MAC (awaiting MAC again)" Click="OnClearMac" />
+              <MenuItem Header="_Remove" Command="{Binding Plan.RemoveDeviceCommand}" InputGestureText="Del" />
+              <Separator />
+              <MenuItem Header="_Copy rows" Click="OnCopyPlanRows" InputGestureText="Ctrl+C" />
+              <MenuItem Header="Copy _IP address" Click="OnCopyPlanIp" />
+              <MenuItem Header="Copy M_AC address" Click="OnCopyPlanMac" />
+              <MenuItem Header="_Paste rows" Click="OnPastePlanRows" InputGestureText="Ctrl+V" />
+              <Separator />
+              <MenuItem Header="_Diagnose this device" Click="OnDiagnoseSelectedRow" />
+              <MenuItem Header="Open _web page" Click="OnOpenPlanRowWebPage" />
+              <MenuItem Header="Read Mod_bus registers" Click="OnModbusSelectedRow"
+                        ToolTip="Opens the Modbus tab on this device's planned address. Read-only." />
               <MenuItem Header="Device _quirks..." Click="OnEditQuirks"
                         ToolTip="What this device is known to do wrong, and what NetControl does about each." />
-              <MenuItem Header="_Diagnose this device" Click="OnDiagnoseSelectedRow" />
-              <MenuItem Header="_Read Modbus registers" Click="OnModbusSelectedRow"
-                        ToolTip="Opens the Modbus tab on this device's planned address. Read-only." />
+              <MenuItem Header="_History..." Click="OnShowHistory" />
+              <Separator />
+              <MenuItem Header="Enable B_OOTP on the selected device..." IsEnabled="{Binding Plan.CanHandBack}" Click="OnEnableBootp" />
+              <MenuItem Header="Enable DH_CP on the selected device..." IsEnabled="{Binding Plan.CanHandBack}" Click="OnEnableDhcp" />
             </ContextMenu>
           </DataGrid.ContextMenu>
         </DataGrid>

@@ -4,6 +4,30 @@ Newest first. The release workflow copies a version's section onto its GitHub re
 write it for the person deciding whether to install the update. The heading has to start
 `## <version>` for that to find it.
 
+## 0.14.0 - more you can do with plan rows, and set your laptop's address
+
+- **Select several plan rows** (Ctrl+click, Shift+click) and act on them together: **Set static on
+  selected...**, **Ping**, **Remove**, **Copy rows**, **Clear MAC**, and **Set mask, gateway,
+  panel...** to give a whole cell the same values at once.
+- **Right-click a plan row** for everything: Set static, Check, Ping, Duplicate with next IP, Copy
+  IP/MAC, Open web page, Diagnose, Modbus, Quirks, History, and Enable BOOTP/DHCP.
+- **Check (read only)** reads what each selected device actually holds - address, mask, gateway,
+  BOOTP/DHCP still on, and whether it is even the device the row plans - and shows *matches* /
+  *differs* in a new Check column. Nothing is written.
+- **Copy and paste with Excel.** Ctrl+C copies rows as tab-separated text; Ctrl+V adds rows copied
+  from a spreadsheet, each checked as if typed. Columns are matched by header name when there is one.
+- **Duplicate with next IP** (Ctrl+D) adds the next free address on the subnet with the same mask,
+  gateway, panel and role, awaiting its MAC.
+- **Find** and a state filter (Awaiting MAC, Problems, Not verified...) above the grid.
+- **Undo remove** (Ctrl+Z). Removing several rows asks first.
+- **History...** shows one device's slice of the project record.
+- **Set this laptop's address.** **Set address...** beside the Adapter list sets the adapter's IP,
+  mask and gateway - from one of the plan's subnets with the laptop at .250 (changeable), from a
+  profile saved in the project, or typed. Replace, add a second address, or back to DHCP. Shows the
+  netsh lines first, asks for administrator rights only if Windows needs them, and reads the adapter
+  back before saying it is done. **Restore** puts back what the adapter had before NetControl first
+  changed it.
+
 ## 0.13.0 - import the project IP workbook as the plan
 
 - **Import the project IP workbook.** **File > Import plan** now reads an Excel workbook (.xlsx) as

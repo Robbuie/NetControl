@@ -1,0 +1,39 @@
+<Window x:Class="NetControl.App.Views.DeviceHistoryWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Device history"
+        Width="820"
+        Height="460"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner"
+        Style="{StaticResource ChromeDialog}">
+
+  <!-- One device's slice of the project's append-only record, oldest first. Read only. -->
+
+  <DockPanel Margin="18,14,18,14">
+    <TextBlock DockPanel.Dock="Top" x:Name="HeadText" Style="{StaticResource PanelHead}" TextWrapping="Wrap" />
+    <TextBlock DockPanel.Dock="Top" Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,2,0,10"
+               Text="Everything the project's record holds against this device, oldest first. Nothing here can be edited." />
+    <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+      <Button Content="Copy" MinWidth="80" Margin="0,0,8,0" Click="OnCopy" />
+      <Button Content="Close" IsCancel="True" IsDefault="True" MinWidth="80" />
+    </StackPanel>
+    <TextBlock DockPanel.Dock="Top" x:Name="EmptyText" Style="{StaticResource Muted}" Visibility="Collapsed"
+               Text="Nothing has been recorded against this device yet." />
+    <ListView x:Name="EventList">
+      <ListView.View>
+        <GridView>
+          <GridViewColumn Header="When" Width="150" DisplayMemberBinding="{Binding When}" />
+          <GridViewColumn Header="" Width="60" DisplayMemberBinding="{Binding Severity}" />
+          <GridViewColumn Header="What" Width="560">
+            <GridViewColumn.CellTemplate>
+              <DataTemplate>
+                <TextBlock Text="{Binding Message}" TextWrapping="Wrap" />
+              </DataTemplate>
+            </GridViewColumn.CellTemplate>
+          </GridViewColumn>
+        </GridView>
+      </ListView.View>
+    </ListView>
+  </DockPanel>
+</Window>

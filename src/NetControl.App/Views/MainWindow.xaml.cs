@@ -65,6 +65,8 @@ public partial class MainWindow : Window
             old.DiagnosticsRequested -= OnDiagnosticsRequested;
             old.ModbusRequested -= OnModbusRequested;
             old.Plan.ConfirmBulk = null;
+            old.Plan.ConfirmRemove = null;
+            old.Plan.FilterChanged -= OnPlanFilterChanged;
             old.Profinet.ConfirmWrite = null;
         }
 
@@ -73,6 +75,9 @@ public partial class MainWindow : Window
             viewModel.DiagnosticsRequested += OnDiagnosticsRequested;
             viewModel.ModbusRequested += OnModbusRequested;
             viewModel.Plan.ConfirmBulk = ConfirmSetStaticOnAll;
+            viewModel.Plan.ConfirmRemove = ConfirmRemoveRows;
+            viewModel.Plan.FilterChanged += OnPlanFilterChanged;
+            HookPlanFilter(viewModel);
             viewModel.Profinet.ConfirmWrite = ConfirmProfinetWrite;
         }
     }
@@ -170,7 +175,7 @@ public partial class MainWindow : Window
                     ? Environment.NewLine + Environment.NewLine
                         + "Reset is allowed: a device that needs one to apply its address WILL be reset."
                     : string.Empty),
-            "Set static on all",
+            "Set static",
             MessageBoxButton.YesNo,
             MessageBoxImage.Question,
 
