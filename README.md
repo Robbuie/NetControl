@@ -22,6 +22,8 @@ This guide is also inside the application: **Help > User guide**, or press **F1*
 - [Device quirks](#device-quirks)
 - [Scanning the network](#scanning-the-network)
 - [Diagnostics](#diagnostics)
+- [Network health](#network-health)
+- [Listen only and network activity](#listen-only-and-network-activity)
 - [TFTP robot backups](#tftp-robot-backups)
 - [Modbus](#modbus)
 - [Passive listening](#passive-listening)
@@ -57,6 +59,14 @@ asked for it by name, but you are still the one pressing the button. The rules i
   chose.
 - **Everything that puts a packet on the network is recorded** in the project file, with the time,
   the target, what was sent and what came back.
+- **Listen only stops everything.** Tick **Listen only** on the interface bar and NetControl
+  transmits nothing at all - no scan, ping, Set static, DHCP reply, TFTP refusal, PROFINET frame or
+  adapter change - while watching, Passive listening and every local check carry on. Every send also
+  passes one **send cap** (200 packets a second by default, every feature together) and is listed in
+  **Tools > Network activity and safety**.
+- **A misbehaving device cannot make NetControl misbehave.** A device asking for an address hundreds
+  of times a second is handled ten times a second and answered at most four; the rest are counted
+  and summarised every few seconds rather than logged, recorded and answered one by one.
 
 Version 1.0.0 is reserved for the build that commissions a real panel without the Rockwell tool.
 Until then, treat results on customer equipment with the care any new tool deserves.
@@ -508,6 +518,93 @@ something accepted the connection but did not answer like the real protocol.
 and fills in the **Reach** column. An answer proves something is at that address - not that it is the
 device you planned.
 
+## Network health
+
+**Tools > Network health**, or the **Network health** tab. Three tools for "something on this network
+is wrong and I do not know what".
+
+### Troubleshoot
+
+Press **Troubleshoot**. In a few seconds it checks, in the order you would walk the path:
+
+- **This PC** - the adapter selected at the top of the window: link, address (none, or a
+  self-assigned 169.254 one), 10 Mb/s links (a damaged cable or duplex mismatch), virtual adapters,
+  and another adapter on the same subnet that Windows may send traffic out of instead.
+- **The cable** - this PC's own port is watched for three seconds: any error counted is this PC's
+  patch lead, port or dock, never the devices.
+- **Traffic** - the broadcast and multicast rate this PC is receiving. Hundreds a second is high; a
+  couple of thousand is a storm, usually a loop.
+- **This PC's software** - another program on UDP/67, and the firewall.
+- **Addresses** - whether Windows has flagged this PC's own address as a duplicate, whether this PC
+  is on the plan's subnets at all, address conflicts the conflict watch has seen, and any planned
+  address the ARP table shows held by a different MAC than the plan says.
+- **Devices** (with **Include ping checks**) - one ping to the gateway and to every planned device on
+  this PC's subnets, retried once, four at a time. A device that does not answer is a note, not a
+  problem: it may be off, unbuilt or set to ignore ping.
+- **What the Passive tab hears**, if it is listening - storms, top talkers, another DHCP server,
+  spanning tree.
+
+Each finding says what is wrong, the evidence, and what to do next, worst first. **Copy** puts the
+list on the clipboard for an email. The run is recorded in the project.
+
+### Address conflicts
+
+Two devices on one address work *intermittently* - each takes the traffic in turn - which looks
+exactly like a bad cable or a flaky module, and ping will not find it because the address does
+answer. Tick **Watch ARP table** to read this PC's own ARP table every five seconds (nothing is
+sent); an address that flips between two MACs is listed. If the **Passive** tab is listening, every
+ARP frame on the segment feeds the same list, including the probe a device sends before taking an
+address and anything claiming this PC's own address. An address that moved cleanly from one MAC to
+another (a replaced module) is shown as a move rather than a conflict. Each conflict is recorded in
+the project.
+
+### Ping monitor
+
+For "it drops out every so often". Type an address and **Add**, or select plan rows and **Add
+selected plan rows**; set the interval (500 ms at the least) and **Start**. Each row shows the last
+round trip, min/avg/max, jitter, loss, outages (three or more echoes lost in a row) with the longest,
+and a two-minute sparkline where a lost echo reads as a spike. Rows turn amber while dropping and
+red while down. Up to 64 addresses, eight pings at once, one host each - broadcast and multicast are
+refused. Each outage and recovery is recorded in the project, with its length.
+
+### Traffic on the Passive tab
+
+While **Passive** is listening, a panel above the device list says what the traffic adds up to:
+broadcast, multicast and ARP rates, the peak second, the top talkers, and findings - a **broadcast
+storm**, **one device sending most of the traffic**, **spanning tree reorganising** (a link going up
+and down somewhere; while it reconverges, traffic stops for seconds - long enough to drop an I/O
+connection), **the root bridge changing**, **another BOOTP/DHCP server answering** (a device takes
+the first answer it gets), and **a device that keeps asking for an address**. All from frames
+already being heard; nothing is sent.
+
+## Listen only and network activity
+
+**Listen only** on the interface bar stops NetControl transmitting anything: scans, pings, Set
+static, Assign IP, DHCP replies (Serve cannot start, and a running Serve only logs), TFTP refusals
+and transfers, the TFTP probe, PROFINET frames, the ping monitor, changes to this PC's address and
+the update check at startup. Watching, Passive listening, the ARP watch, Troubleshoot without pings
+and every local check carry on. A yellow line under the bar says it is on, and it stays on when
+NetControl is restarted.
+
+**Tools > Network activity and safety** (or click the packet count in the status bar) lists every
+packet NetControl has sent this session - when, what, to whom and why - and every one listen-only
+stopped, with totals per kind. **Export CSV** saves it. The same window sets the **send cap**: the
+most packets a second NetControl originates, every feature together (200 by default, 0 for no cap,
+10 at the least). Over the cap, sending waits rather than failing, so a scan takes longer and
+nothing is lost.
+
+### The diagnostic log and support bundles
+
+**Help > Diagnostic log** shows the diagnostic log as it is written, filtered by level or text, with
+**Pause**, **Copy** and **Open folder**. Tick **Verbose** to add a line for every DHCP request and
+reply, every CIP request and response, every ping and every packet the send gate passes - capped at
+200 lines a second so it can never slow the tool down. Turn it off when done; it is remembered.
+
+**Help > Export support bundle** writes one zip for whoever is helping: the diagnostic logs, this
+PC's adapters and interface-bar checks, the sent-packet list, the last troubleshoot, the project's
+event record and NetControl's own settings files. It does **not** include the project file (the
+plan); the event record does name devices, addresses and MACs.
+
 ## TFTP robot backups
 
 For robot image backups that "never start". A FANUC backup over Ethernet is an address request
@@ -658,8 +755,8 @@ OK saves; Cancel puts back what was there.
 | **File** | New project, Open project, Save as, Import / Export plan CSV, Export commissioning report, Exit |
 | **Listener** | Watch, Serve, Stop, Re-check port and firewall, DHCP boot options, Reply by per-socket bind |
 | **View** | Appearance |
-| **Tools** | Set adapter address, Subnet calculator, Ping the plan, Diagnostics, Fill in awaiting MACs from the scan |
-| **Help** | User guide (F1), Check for updates, Releases page, Open the diagnostic log folder, About NetControl |
+| **Tools** | Set adapter address, Network health, Network activity and safety, Subnet calculator, Ping the plan, Diagnostics, Fill in awaiting MACs from the scan |
+| **Help** | User guide (F1), Check for updates, Releases page, Diagnostic log, Export support bundle, Open the diagnostic log folder, About NetControl |
 
 In the plan grid: **Del** remove, **Ctrl+Z** undo remove, **Ctrl+C** / **Ctrl+V** copy and paste
 rows, **Ctrl+D** duplicate with next IP, **F5** ping the selected rows.
@@ -674,6 +771,7 @@ NetControl keeps its own things in `%LOCALAPPDATA%\NetControl\`, never beside th
 | | |
 |---|---|
 | `logs\netcontrol-<date>.log` | The diagnostic log - why the application misbehaved. Rolls daily and at 4 MB, keeps ten files. **Help > Open the diagnostic log folder.** |
+| `safety.json` | Listen only, the send cap and verbose logging, as you last left them. |
 | `settings.json` | Optional, absent by default. |
 | `updates\` | A downloaded update, briefly. Cleared at the next start. |
 
@@ -734,8 +832,16 @@ it while you watch, and start it again afterwards.
 **NetControl 0.9.0 does not open after installing.** Install 0.9.1 or later by hand over the top;
 projects and settings are kept.
 
-**Something else went wrong.** **Help > Open the diagnostic log folder** and send the latest log,
-together with the version shown in the status bar and in **Help > About NetControl**.
+**Something on the network is wrong and you do not know what.** **Network health > Troubleshoot**
+first. If a device drops out now and then, put it on the **ping monitor** and leave it running; if
+it works for a while and then does not, tick **Watch ARP table** - two devices on one address
+behave exactly like that.
+
+**A scan or ping says listen-only mode is on.** Untick **Listen only** on the interface bar.
+
+**Something else went wrong.** **Help > Export support bundle** and send the zip, or **Help > Open
+the diagnostic log folder** and send the latest log. Ticking **Verbose** in **Help > Diagnostic log**
+before reproducing the problem puts every packet in the log.
 
 ## Building from source
 

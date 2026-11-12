@@ -10,6 +10,7 @@ using NetControl.Core.Interfaces;
 using NetControl.Core.Persistence;
 using NetControl.Core.Plan;
 using NetControl.Core.Reachability;
+using NetControl.Core.Safety;
 
 namespace NetControl.App.ViewModels;
 
@@ -564,6 +565,11 @@ public sealed partial class DiagnosticsViewModel : ObservableObject
             await work().ConfigureAwait(true);
         }
         catch (ReachabilityException ex)
+        {
+            SetError(ex.Message, ex.Remediation);
+            Status = ex.Message;
+        }
+        catch (TransmitBlockedException ex)
         {
             SetError(ex.Message, ex.Remediation);
             Status = ex.Message;

@@ -30,4 +30,19 @@ public interface ITraceLog
     /// describing is worse than no diagnostic log, and this one runs inside crash handlers.
     /// </summary>
     void Write(EventSeverity severity, string message, Exception? error = null);
+
+    /// <summary>
+    /// True when the user has asked for the detailed trace (Help > Diagnostic log > Verbose). Checked
+    /// by callers before building an expensive message, so a quiet log costs nothing.
+    /// </summary>
+    bool IsVerbose => false;
+
+    /// <summary>
+    /// Writes one detail line - what was sent, to whom, and what came back - when <see cref="IsVerbose"/>
+    /// is on, and nothing otherwise. <b>Never throws</b>, the same as <see cref="Write"/>.
+    /// </summary>
+    void WriteVerbose(string message)
+    {
+        // Nothing by default: a log that has no verbose level simply ignores the detail.
+    }
 }

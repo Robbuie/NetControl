@@ -19,6 +19,7 @@
            is where they are turned into brushes a converter can hand back. -->
       <views:ReadinessBrushConverter x:Key="ReadinessBrush" />
       <views:NullToVisibilityConverter x:Key="NotNullToVisible" />
+      <views:FindingBrushConverter x:Key="FindingBrush" />
       <BooleanToVisibilityConverter x:Key="BoolToVisible" />
 
     </ResourceDictionary>

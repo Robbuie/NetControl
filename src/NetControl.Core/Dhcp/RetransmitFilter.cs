@@ -26,6 +26,7 @@ public sealed class RetransmitFilter(TimeSpan? window = null, TimeProvider? time
     private readonly Lock _gate = new();
     private readonly TimeSpan _window = window ?? DefaultWindow;
     private readonly TimeProvider _time = timeProvider ?? TimeProvider.System;
+    private long _lastPrune;
 
     /// <summary>
     /// Records this request and reports whether an identical one arrived inside the window.
@@ -42,8 +43,11 @@ public sealed class RetransmitFilter(TimeSpan? window = null, TimeProvider? time
 
             _lastSeen[key] = now;
 
-            if (_lastSeen.Count > PruneThreshold)
+            // Pruned at most once a window. Pruning on every packet once the table is past the
+            // threshold made a flood of fresh transaction IDs cost a full table walk per packet.
+            if (_lastSeen.Count > PruneThreshold && _time.GetElapsedTime(_lastPrune, now) > _window)
             {
+                _lastPrune = now;
                 PruneLocked(now);
             }
 

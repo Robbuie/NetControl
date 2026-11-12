@@ -1,5 +1,6 @@
 using System.Net;
 using NetControl.Core.Capture;
+using NetControl.Core.Safety;
 
 namespace NetControl.Core.Profinet;
 
@@ -62,7 +63,11 @@ public sealed class DcpClient
 
         try
         {
-            _channel.Send(DcpFrame.IdentifyAll(_channel.LocalMac, xid, IdentifyResponseDelay));
+            byte[] identify = DcpFrame.IdentifyAll(_channel.LocalMac, xid, IdentifyResponseDelay);
+            await NetworkGuard.Shared
+                .AcquireAsync(TransmitKind.RawFrame, "PROFINET multicast", "DCP Identify All", identify.Length, cancellationToken)
+                .ConfigureAwait(false);
+            _channel.Send(identify);
             await Task.Delay(window, cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -188,6 +193,9 @@ public sealed class DcpClient
 
         try
         {
+            await NetworkGuard.Shared
+                .AcquireAsync(TransmitKind.RawFrame, target.ToString(), service == DcpFrame.ServiceSet ? "DCP Set (a write)" : "DCP Get", frame.Length, cancellationToken)
+                .ConfigureAwait(false);
             _channel.Send(frame);
 
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

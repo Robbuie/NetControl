@@ -83,7 +83,15 @@ public sealed class AppHost : IDisposable
             saveTftpSettings: settings => TftpSettingsStore.Save(settings, _trace),
             sweep: sweep,
             adapterConfigurator: new NetshAdapterConfigurator(_trace),
-            adapterSnapshots: new AdapterSnapshotFile(trace: _trace));
+            adapterSnapshots: new AdapterSnapshotFile(trace: _trace),
+
+            // The ARP watch on the Network health tab reads the same table the scan does. Listen-only,
+            // the send cap and the verbose trace were applied from safety.json by App before this
+            // graph was built; the view model saves them back when they change.
+            arp: arp,
+            guard: Core.Safety.NetworkGuard.Shared,
+            trace: _trace,
+            saveSafety: settings => SafetySettingsStore.Save(settings, _trace));
 
         // Raised on a background thread by design, so the view model marshals. Subscribing before
         // Start means the first inventory arrives through the same path as every later one.
@@ -128,6 +136,14 @@ public sealed class AppHost : IDisposable
     /// </summary>
     private async Task CheckForUpdatesAsync()
     {
+        // Listen-only means nothing leaves this PC unasked - the startup check included. Help >
+        // Check for updates still works, because somebody pressed it.
+        if (Core.Safety.NetworkGuard.Shared.ListenOnly)
+        {
+            _trace.Info("Startup update check skipped: listen-only mode is on.");
+            return;
+        }
+
         AppSettings settings = AppSettings.Load(AppPaths.SettingsFile, _trace);
 
         UpdateResult result = await UpdateCheck

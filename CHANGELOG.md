@@ -4,6 +4,42 @@ Newest first. The release workflow copies a version's section onto its GitHub re
 write it for the person deciding whether to install the update. The heading has to start
 `## <version>` for that to find it.
 
+## 0.15.0 - network health, listen only, and a log you can read
+
+- **Troubleshoot.** A new **Network health** tab (also **Tools > Network health**). One button checks
+  this PC's adapter, link speed and other adapters on the same subnet; watches this PC's own port for
+  errors and for a broadcast storm; checks UDP/67 and the firewall; looks for this PC's address being
+  used elsewhere, the plan's subnets, address conflicts and planned addresses held by the wrong MAC;
+  optionally pings the gateway and the planned devices; and includes what the Passive tab is hearing.
+  Each finding says what is wrong, the evidence and the next step, worst first.
+- **Address conflict watch.** Two devices on one address - the fault that looks like a bad cable -
+  found from this PC's ARP table (nothing sent) and from every ARP frame the Passive tab hears,
+  including a device probing for an address somebody already has, and anything claiming this PC's own.
+- **Ping monitor.** Watch up to 64 devices continuously: loss, min/avg/max, jitter, outages with the
+  longest, and a two-minute sparkline. Outages are recorded in the project as they happen.
+- **Traffic health on the Passive tab.** Broadcast, multicast and ARP rates, top talkers, and
+  findings for a broadcast storm, one device swamping the segment, spanning-tree topology changes,
+  the root bridge changing, another BOOTP/DHCP server answering, and a device stuck asking for an address.
+- **Listen only.** One tick on the interface bar and NetControl transmits nothing - every scan, ping,
+  CIP write, DHCP reply, TFTP packet, PROFINET frame and adapter change is refused at one gate - while
+  watching and listening carry on. Remembered across restarts.
+- **A send cap and a list of everything sent.** Every packet NetControl originates passes one cap (200
+  a second by default, every feature together) and is listed in **Tools > Network activity and
+  safety**, exportable as CSV. The status bar shows the count.
+- **Floods are contained.** A device asking for an address hundreds of times a second is handled ten
+  times a second and answered at most four; the rest are summarised every five seconds instead of
+  filling the log, the project file and the segment. The Passive tab's device list now updates in
+  place instead of rebuilding every second, and keeps at most 4,096 devices.
+- **Diagnostic log viewer and verbose logging.** **Help > Diagnostic log** shows the log live with
+  filters. **Verbose** adds every DHCP request and reply, CIP exchange, ping and sent packet, capped
+  at 200 lines a second. The DHCP server, scanner, CIP session, TFTP watch and the new tools now write
+  to the log too.
+- **Support bundle.** **Help > Export support bundle** zips the logs, adapters, sent-packet list,
+  last troubleshoot, the project's event record and the settings files - not the plan itself.
+- Fixed: closing the Passive or PROFINET tab's capture while the driver was mid-read could close the
+  handle under it. Fixed: a burst of fresh DHCP transaction ids made the retransmit filter re-scan
+  its whole table on every packet.
+
 ## 0.14.0 - more you can do with plan rows, and set your laptop's address
 
 - **Select several plan rows** (Ctrl+click, Shift+click) and act on them together: **Set static on

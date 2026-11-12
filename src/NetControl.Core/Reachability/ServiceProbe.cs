@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
+using NetControl.Core.Safety;
 
 namespace NetControl.Core.Reachability;
 
@@ -78,6 +79,10 @@ public sealed class ServiceProbe
 
     private async Task<ServiceCheck> CheckAsync(IPAddress address, ServicePort service, CancellationToken cancellationToken)
     {
+        await NetworkGuard.Shared
+            .AcquireAsync(TransmitKind.TcpConnect, $"{address}:{service.Port}", "service check", 0, cancellationToken)
+            .ConfigureAwait(false);
+
         long started = Stopwatch.GetTimestamp();
 
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

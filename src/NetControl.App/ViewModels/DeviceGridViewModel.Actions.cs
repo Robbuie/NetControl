@@ -551,7 +551,7 @@ public sealed partial class DeviceGridViewModel
         {
             report = await reader.ReadAsync(ip, device.PlannedMask, cancellationToken).ConfigureAwait(true);
         }
-        catch (Exception ex) when (ex is EnipException or ReachabilityException or SocketException or TimeoutException or System.IO.IOException)
+        catch (Exception ex) when (ex is EnipException or ReachabilityException or SocketException or TimeoutException or System.IO.IOException or NetControl.Core.Safety.TransmitBlockedException)
         {
             return new PlanCheck(false, "no answer",
                 $"Nothing answered EtherNet/IP at {ip}: {ex.Message} A device that does not speak EtherNet/IP "

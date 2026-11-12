@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using NetControl.Core.Dhcp;
+using NetControl.Core.Diagnostics;
 using NetControl.Core.Interfaces;
 
 namespace NetControl.Core.Enip;
@@ -187,6 +188,9 @@ public sealed class IdentityScanner : IIdentityScanner
         }
 
         clock.Stop();
+        NetTrace.Log.Info(
+            $"ListIdentity on [{nic.Index}] {nic.Name} ({nic.IPv4}): {sent} sent{(broadcast ? " incl. broadcast" : string.Empty)}, "
+            + $"{found.Count} answered, {duplicates} duplicate, {refused} refused, {ignored} ignored, {clock.Elapsed.TotalMilliseconds:0} ms.");
         return new ScanReport(nic, found, sent, duplicates, ignored, refused, clock.Elapsed);
     }
 
@@ -286,6 +290,11 @@ public sealed class IdentityScanner : IIdentityScanner
     private async Task<int> ProbeAsync(
         Socket socket, byte[] probe, IPAddress target, CancellationToken cancellationToken)
     {
+        // Outside the try: listen-only mode ends the whole scan, where an unreachable address does not.
+        await (_options.Guard ?? Safety.NetworkGuard.Shared)
+            .AcquireAsync(Safety.TransmitKind.ListIdentity, $"{target}:{_options.Port}", "Scan", probe.Length, cancellationToken)
+            .ConfigureAwait(false);
+
         try
         {
             await socket
@@ -294,8 +303,10 @@ public sealed class IdentityScanner : IIdentityScanner
 
             return 1;
         }
-        catch (SocketException)
+        catch (SocketException ex)
         {
+            NetTrace.Log.Debug(() => $"ListIdentity to {target} not sent: {ex.SocketErrorCode}.");
+
             // One unreachable address must not end a sweep: on a segment where half the planned
             // range is empty, that would mean the scan stops at the first gap.
             return 0;

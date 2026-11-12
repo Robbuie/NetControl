@@ -1,6 +1,7 @@
 using System.Net;
 using NetControl.Core.Cip;
 using NetControl.Core.Enip;
+using NetControl.Core.Safety;
 
 namespace NetControl.Core.Commissioning;
 
@@ -180,6 +181,21 @@ public sealed class StaticIpCommissioner(TimeProvider? timeProvider = null)
                 Remediation = ex.Remediation,
                 WroteToDevice = wrote,
                 ConnectionDroppedAfterWrite = wrote,
+                ResetTheDevice = reset,
+            };
+        }
+        catch (TransmitBlockedException ex)
+        {
+            // Listen-only was on (or switched on part way). Nothing further was sent; if the writes
+            // had already gone out, the readback did not, so the result is unknown rather than failed.
+            Report(CommissionStep.Finished, ex.Message, isFailure: true);
+
+            return new CommissionResult
+            {
+                Outcome = wrote ? CommissionOutcome.Unverified : CommissionOutcome.Unreachable,
+                Message = ex.Message,
+                Remediation = ex.Remediation,
+                WroteToDevice = wrote,
                 ResetTheDevice = reset,
             };
         }

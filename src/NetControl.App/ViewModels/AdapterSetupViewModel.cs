@@ -8,6 +8,7 @@ using NetControl.App.AdapterSetup;
 using NetControl.Core.AdapterSetup;
 using NetControl.Core.Interfaces;
 using NetControl.Core.Persistence;
+using NetControl.Core.Safety;
 
 namespace NetControl.App.ViewModels;
 
@@ -434,6 +435,15 @@ public sealed partial class AdapterSetupViewModel : ObservableObject
         Func<AdapterSnapshot?, string?> mismatch,
         CancellationToken cancellationToken)
     {
+        // Changing this PC's address announces it on the wire (gratuitous ARP, duplicate address
+        // detection), so listen-only refuses it like any other transmission.
+        if (NetworkGuard.Shared.ListenOnly)
+        {
+            NetworkGuard.Shared.Ledger.Add(new SentPacket(DateTimeOffset.UtcNow, TransmitKind.AdapterChange, Adapter.Name, what, 0, Blocked: true));
+            SetStatus("Listen-only mode is on, so this PC's address was not changed. Turn Listen only off to change it.", bad: true);
+            return false;
+        }
+
         IsBusy = true;
         SetStatus("Changing the adapter...", bad: false);
 

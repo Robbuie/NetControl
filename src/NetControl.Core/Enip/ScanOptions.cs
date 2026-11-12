@@ -42,4 +42,7 @@ public sealed record ScanOptions
     /// its own anyway, so the unambiguous option is also the free one.
     /// </summary>
     public ReplySendMode SendMode { get; init; } = ReplySendMode.PerSocketBind;
+
+    /// <summary>The transmit gate - listen-only and the global rate cap. Null means the shared one.</summary>
+    public Safety.NetworkGuard? Guard { get; init; }
 }

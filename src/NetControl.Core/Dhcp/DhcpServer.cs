@@ -1,7 +1,9 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using NetControl.Core.Diagnostics;
 using NetControl.Core.Interfaces;
+using NetControl.Core.Safety;
 
 namespace NetControl.Core.Dhcp;
 
@@ -36,6 +38,9 @@ public sealed class DhcpServer
     private readonly DhcpServerOptions _options;
     private readonly RetransmitFilter _retransmits;
     private readonly TimeProvider _time;
+    private readonly ClientRateLimiter _requestLimit;
+    private readonly ClientRateLimiter _replyLimit;
+    private long _lastFloodReport;
     private int _running;
 
     public DhcpServer(
@@ -52,7 +57,15 @@ public sealed class DhcpServer
         _options = options ?? new DhcpServerOptions();
         _time = timeProvider ?? TimeProvider.System;
         _retransmits = new RetransmitFilter(_options.RetransmitWindow, _time);
+        _requestLimit = new ClientRateLimiter(Math.Max(1, _options.MaxRequestsPerClientPerSecond), _time);
+        _replyLimit = new ClientRateLimiter(Math.Max(1, _options.MaxRepliesPerClientPerSecond), _time);
+        _lastFloodReport = _time.GetTimestamp();
     }
+
+    /// <summary>How long between the one-line summaries of a client that is over its request allowance.</summary>
+    public static readonly TimeSpan FloodReportInterval = TimeSpan.FromSeconds(5);
+
+    private NetworkGuard Guard => _options.Guard ?? NetworkGuard.Shared;
 
     /// <summary>Every well-formed BOOTREQUEST, whether or not it will be answered.</summary>
     public event EventHandler<DhcpRequestEventArgs>? RequestReceived;
@@ -103,12 +116,18 @@ public sealed class DhcpServer
 
             LocalEndPoint = socket.LocalEndPoint as IPEndPoint;
             IsListening = true;
+            NetTrace.Log.Info($"DHCP server listening on {LocalEndPoint} in {_options.Mode} mode, send mode {_options.SendMode}.");
             Listening?.Invoke(this, EventArgs.Empty);
 
             await ReceiveLoopAsync(socket, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
+            if (IsListening)
+            {
+                NetTrace.Log.Info("DHCP server stopped listening.");
+            }
+
             IsListening = false;
             LocalEndPoint = null;
             Interlocked.Exchange(ref _running, 0);
@@ -239,7 +258,21 @@ public sealed class DhcpServer
             return;
         }
 
+        // Past the per-client allowance a request is counted, not handled: no log row, no database
+        // row, no reply. One device in a reboot loop must not be able to bury the requests that
+        // matter, fill the project file, or turn this server into a broadcast source.
+        bool withinAllowance = _requestLimit.TryTake(packet.ClientMac);
+        ReportFloods();
+
+        if (!withinAllowance)
+        {
+            return;
+        }
+
         int arrivalIndex = result.PacketInformation.Interface;
+        NetTrace.Log.Debug(() =>
+            $"RECV BOOTP {packet.MessageType?.ToString() ?? "BOOTP"} from {packet.ClientMac} xid=0x{packet.TransactionId:X8} "
+            + $"on interface {arrivalIndex}, {result.ReceivedBytes} bytes.");
         NicInfo? nic = _nics.ByIndex(arrivalIndex);
         bool retransmit = _retransmits.IsRetransmit(packet.TransactionId, packet.ClientMac);
 
@@ -329,6 +362,22 @@ public sealed class DhcpServer
 
         byte[] bytes = reply.Serialize();
 
+        if (!_replyLimit.TryTake(request.ClientMac))
+        {
+            NetTrace.Log.Debug(() => $"Reply to {request.ClientMac} not sent: over {_replyLimit.PerSecond} replies a second to one client.");
+            return;
+        }
+
+        try
+        {
+            Guard.Acquire(TransmitKind.DhcpReply, destination.ToString(), $"reply to {request.ClientMac}", bytes.Length);
+        }
+        catch (TransmitBlockedException ex)
+        {
+            RaiseFault($"No reply was sent to {request.ClientMac}: {ex.Message}", ex.Remediation);
+            return;
+        }
+
         try
         {
             int sent = Transmit(socket, bytes, destination, nic);
@@ -380,6 +429,34 @@ public sealed class DhcpServer
     /// Static and side-effect free so it can be unit tested against captured frames without a
     /// socket anywhere near it.
     /// </summary>
+    /// <summary>
+    /// Every <see cref="FloodReportInterval"/>, one fault per client that went over its request
+    /// allowance - a summary instead of the hundreds of lines it would otherwise have been.
+    /// </summary>
+    private void ReportFloods()
+    {
+        long now = _time.GetTimestamp();
+        TimeSpan since = _time.GetElapsedTime(Interlocked.Read(ref _lastFloodReport), now);
+
+        if (since < FloodReportInterval)
+        {
+            return;
+        }
+
+        Interlocked.Exchange(ref _lastFloodReport, now);
+
+        foreach ((MacAddress mac, long suppressed) in _requestLimit.DrainSuppressed())
+        {
+            string message = $"{mac} sent {suppressed} more request(s) in the last {since.TotalSeconds:0} s than the "
+                + $"{_requestLimit.PerSecond} a second this server handles from one device. They were counted, not logged or answered.";
+
+            RaiseFault(
+                message,
+                "A device asking this often is usually in a reboot loop or has no retry backoff. Check its power, "
+                    + "cabling and configuration - nothing on this side needs changing.");
+        }
+    }
+
     internal static BootpPacket? BuildReply(
         BootpPacket request,
         DeviceAssignment assignment,
@@ -502,6 +579,9 @@ public sealed class DhcpServer
         SocketError.SystemNotReady or
         SocketError.NetworkDown;
 
-    private void RaiseFault(string message, string? remediation, Exception? exception = null, bool isFatal = false) =>
+    private void RaiseFault(string message, string? remediation, Exception? exception = null, bool isFatal = false)
+    {
+        NetTrace.Log.Write(isFatal ? Persistence.EventSeverity.Error : Persistence.EventSeverity.Warn, "DHCP server: " + message, exception);
         Fault?.Invoke(this, new DhcpFaultEventArgs(_time.GetUtcNow(), message, remediation, exception, isFatal));
+    }
 }

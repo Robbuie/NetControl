@@ -54,10 +54,12 @@ internal sealed class WireHarness : IAsyncDisposable
         NicInfo? nic = null,
         int? interfaceIndexFilter = null,
         ReplySendMode sendMode = ReplySendMode.UnicastInterfaceOption,
-        bool listenAsDevice = false)
+        bool listenAsDevice = false,
+        NetControl.Core.Safety.NetworkGuard? guard = null)
     {
         var options = new DhcpServerOptions
         {
+            Guard = guard,
             ListenPort = FreeUdpPort(),
             ClientPort = FreeUdpPort(),
             Mode = mode,

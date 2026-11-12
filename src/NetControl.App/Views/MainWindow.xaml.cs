@@ -50,6 +50,13 @@ public partial class MainWindow : Window
         // The guide is not owned, so that it can sit beside this window rather than always on top
         // of it - which means it has to be closed here, or it would outlive the application.
         Closed += (_, _) => _userGuide?.Close();
+        Closed += (_, _) =>
+        {
+            _networkActivity?.Close();
+            _logViewer?.Close();
+        };
+
+        StartActivityTimer();
     }
 
     private MainViewModel? ViewModel => DataContext as MainViewModel;

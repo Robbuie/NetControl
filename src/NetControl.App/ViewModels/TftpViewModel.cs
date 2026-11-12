@@ -544,6 +544,13 @@ public sealed partial class TftpViewModel : ObservableObject, IDisposable
                 + "probe never deletes anything; remove it by hand.";
             ProbeStatus = null;
         }
+        catch (NetControl.Core.Safety.TransmitBlockedException ex)
+        {
+            ProbeState = ReadinessState.Blocked;
+            ProbeSummary = ex.Message;
+            ProbeRemediation = ex.Remediation;
+            ProbeStatus = null;
+        }
         catch (System.Net.Sockets.SocketException ex)
         {
             ProbeState = ReadinessState.Blocked;

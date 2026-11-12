@@ -5,6 +5,7 @@ using NetControl.App.Composition;
 using NetControl.App.Diagnostics;
 using NetControl.App.Views;
 using NetControl.Core.Diagnostics;
+using NetControl.Core.Safety;
 
 namespace NetControl.App;
 
@@ -43,6 +44,22 @@ public partial class App : Application
         // the reason the tool fails to start.
         _trace = TraceLog.Open(AppPaths.Logs);
         _trace.Info(BuildInfo.Describe());
+
+        // The engines' own lines - what was sent, what came back, why it failed - go to the same file.
+        NetTrace.Log = _trace;
+
+        // Listen-only, the send cap and the verbose trace, as this PC last left them. Applied before
+        // anything is built, so a laptop left in listen-only mode cannot transmit even at startup.
+        SafetySettings safety = SafetySettingsStore.Load(_trace);
+        NetworkGuard.Shared.MaxPacketsPerSecond = safety.MaxPacketsPerSecond;
+        NetworkGuard.Shared.ListenOnly = safety.ListenOnly;
+        _trace.IsVerbose = safety.VerboseLog;
+        _trace.Info($"Network safety: listen only {(safety.ListenOnly ? "on" : "off")}, "
+            + $"send cap {(NetworkGuard.Shared.MaxPacketsPerSecond == 0 ? "none" : NetworkGuard.Shared.MaxPacketsPerSecond + "/s")}, "
+            + $"verbose log {(safety.VerboseLog ? "on" : "off")}.");
+
+        // A task nobody awaited that failed would otherwise vanish without a word.
+        TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
 
         // Before anything is shown, and before the object graph is built. Every window this
         // process opens - including the error dialog three lines down, if the graph fails - is
@@ -117,14 +134,35 @@ public partial class App : Application
 
         // Last of all, so anything the teardown had to say is in the file before it closes.
         _trace?.Write(NetControl.Core.Persistence.EventSeverity.Info, "Stopped.");
+        NetTrace.Log = NullTraceLog.Instance;
         _trace?.Dispose();
         _trace = null;
 
         base.OnExit(e);
     }
 
+    private void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+    {
+        _trace?.Write(NetControl.Core.Persistence.EventSeverity.Error, "A background task failed and nothing was waiting for it.", e.Exception);
+        e.SetObserved();
+    }
+
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
+        // Listen-only stopping a transmission is the switch working, not a crash: say so plainly,
+        // without a stack trace, and keep going.
+        if (FindBlocked(e.Exception) is { } blocked)
+        {
+            _trace?.Write(NetControl.Core.Persistence.EventSeverity.Info, blocked.Message);
+            MessageBox.Show(
+                $"{blocked.Message}{Environment.NewLine}{Environment.NewLine}{blocked.Remediation}",
+                "NetControl - listen only",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+            e.Handled = true;
+            return;
+        }
+
         Report("NetControl hit an error it did not expect.", e.Exception);
 
         // Handled, so the window survives. A crash mid-commissioning would take the live log with
@@ -148,6 +186,14 @@ public partial class App : Application
     /// only ever existed on a screen has been read by nobody. Naming the file in the dialog is what
     /// turns "it crashed" into something that can be sent on.</para>
     /// </summary>
+    private static TransmitBlockedException? FindBlocked(Exception? exception) => exception switch
+    {
+        TransmitBlockedException blocked => blocked,
+        AggregateException aggregate => aggregate.InnerExceptions.Select(FindBlocked).FirstOrDefault(b => b is not null),
+        null => null,
+        _ => FindBlocked(exception.InnerException),
+    };
+
     private void Report(string headline, Exception exception)
     {
         _trace?.Write(NetControl.Core.Persistence.EventSeverity.Error, headline, exception);

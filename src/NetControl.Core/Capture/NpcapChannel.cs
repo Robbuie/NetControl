@@ -120,12 +120,19 @@ internal sealed class NpcapChannel : IFrameChannel
         _disposed = true;
         _stopping = true;
 
-        if (_reader.IsAlive && Thread.CurrentThread != _reader)
+        // The handle is closed by whichever of the two finishes last. Closing it while the reader
+        // is still inside pcap_next_ex is a use-after-free in the driver's DLL, and a Join that
+        // times out (a driver call that overran its 250 ms timeout) used to do exactly that.
+        if (_reader.IsAlive && Thread.CurrentThread != _reader && _reader.Join(TimeSpan.FromSeconds(2)))
         {
-            _reader.Join(TimeSpan.FromSeconds(2));
+            CloseHandleOnce();
+        }
+        else if (!_reader.IsAlive || Thread.CurrentThread == _reader)
+        {
+            CloseHandleOnce();
         }
 
-        _native.Close(_handle);
+        // Otherwise the reader is still busy; it sees _stopping and closes the handle as it leaves.
     }
 
     private void ApplyFilter(string filter)
@@ -161,7 +168,32 @@ internal sealed class NpcapChannel : IFrameChannel
         }
     }
 
+    private int _closed;
+
+    private void CloseHandleOnce()
+    {
+        if (Interlocked.Exchange(ref _closed, 1) == 0)
+        {
+            _native.Close(_handle);
+        }
+    }
+
     private void ReadLoop()
+    {
+        try
+        {
+            ReadFrames();
+        }
+        finally
+        {
+            if (_disposed)
+            {
+                CloseHandleOnce();
+            }
+        }
+    }
+
+    private void ReadFrames()
     {
         while (!_stopping)
         {

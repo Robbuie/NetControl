@@ -1,0 +1,70 @@
+<Window x:Class="NetControl.App.Views.LogViewerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Diagnostic log"
+        Width="1000"
+        Height="600"
+        WindowStartupLocation="CenterOwner"
+        Style="{StaticResource ChromeDialog}">
+
+  <!-- The diagnostic log as it is written: what the tool did, not what was done to equipment (that
+       is the project's event record). Verbose adds every packet sent and received. -->
+
+  <DockPanel Margin="18,14,18,14">
+    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+        <TextBlock Text="Show" VerticalAlignment="Center" Margin="0,0,6,0" />
+        <ComboBox x:Name="LevelBox" Width="120" VerticalAlignment="Center" SelectionChanged="OnFilterChanged">
+          <ComboBoxItem Content="Everything" Tag="0" />
+          <ComboBoxItem Content="Info and up" Tag="1" IsSelected="True" />
+          <ComboBoxItem Content="Warnings and up" Tag="2" />
+          <ComboBoxItem Content="Errors only" Tag="3" />
+        </ComboBox>
+        <TextBox x:Name="FilterBox" Width="180" Margin="8,0,0,0" VerticalAlignment="Center" TextChanged="OnFilterChanged"
+                 ToolTip="Show only lines containing this - an address, a MAC, a word." />
+      </StackPanel>
+      <CheckBox Content="Verbose - log every packet sent and received" VerticalAlignment="Center"
+                IsChecked="{Binding IsVerboseLog}"
+                ToolTip="Adds a line for each DHCP request, each reply, each CIP request and response, each ping and each packet the network gate passes. Capped at 200 lines a second so it can never slow the tool down. Remembered across restarts; turn it off when done." />
+    </DockPanel>
+
+    <TextBlock x:Name="WhereText" DockPanel.Dock="Top" Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,0,0,6" />
+
+    <DockPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
+      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+        <ToggleButton x:Name="PauseButton" Content="Pause" MinWidth="80" Margin="0,0,8,0"
+                      ToolTip="Stops the list scrolling so a line can be read. Nothing is lost - lines keep being written to the file." />
+        <Button Content="Copy" MinWidth="80" Margin="0,0,8,0" Click="OnCopy" ToolTip="Copies the lines shown." />
+        <Button Content="Open folder" MinWidth="100" Margin="0,0,8,0" Click="OnOpenFolder" />
+        <Button Content="Close" IsCancel="True" MinWidth="80" Click="OnClose" />
+      </StackPanel>
+      <TextBlock x:Name="CountText" Style="{StaticResource Muted}" VerticalAlignment="Center" />
+    </DockPanel>
+
+    <ListBox x:Name="Lines" FontFamily="{DynamicResource mono}" FontSize="12"
+             VirtualizingPanel.IsVirtualizing="True" VirtualizingPanel.VirtualizationMode="Recycling"
+             ScrollViewer.HorizontalScrollBarVisibility="Auto">
+      <ListBox.ItemTemplate>
+        <DataTemplate>
+          <TextBlock Text="{Binding Text}" ToolTip="{Binding Detail}">
+            <TextBlock.Style>
+              <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                <Style.Triggers>
+                  <DataTrigger Binding="{Binding Rank}" Value="0">
+                    <Setter Property="Foreground" Value="{DynamicResource txt-2}" />
+                  </DataTrigger>
+                  <DataTrigger Binding="{Binding Rank}" Value="2">
+                    <Setter Property="Foreground" Value="{DynamicResource warn}" />
+                  </DataTrigger>
+                  <DataTrigger Binding="{Binding Rank}" Value="3">
+                    <Setter Property="Foreground" Value="{DynamicResource bad}" />
+                  </DataTrigger>
+                </Style.Triggers>
+              </Style>
+            </TextBlock.Style>
+          </TextBlock>
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+  </DockPanel>
+</Window>

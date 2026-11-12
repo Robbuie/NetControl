@@ -1,7 +1,9 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
+using NetControl.Core.Diagnostics;
 using NetControl.Core.Interfaces;
+using NetControl.Core.Safety;
 
 namespace NetControl.Core.Tftp;
 
@@ -300,6 +302,25 @@ public sealed class TftpWatchServer
             return;
         }
 
+        // Listen-only mode: everything is still recorded, and nothing - refusal or transfer - is sent.
+        if (NetworkGuard.Shared.ListenOnly)
+        {
+            NetworkGuard.Shared.Ledger.Add(new SentPacket(
+                now, TransmitKind.Tftp, source.ToString(), $"TFTP {(request.IsWrite ? "write" : "read")} \"{request.FileName}\"", 0, Blocked: true));
+
+            Raise(new TftpRequestEventArgs(
+                now,
+                request,
+                source,
+                arrivalIndex,
+                nic,
+                result.PacketInformation.Address,
+                retransmit,
+                TftpWatchAction.Ignored,
+                "recorded; listen-only mode is on, so nothing was sent and the client will retransmit until it times out"));
+            return;
+        }
+
         if (_options.Mode == TftpWatchMode.Accept)
         {
             Accept(socket, request, source, arrivalIndex, nic, result.PacketInformation.Address, retransmit, now);
@@ -362,6 +383,8 @@ public sealed class TftpWatchServer
 
         try
         {
+            NetworkGuard.Shared.Acquire(TransmitKind.Tftp, source.ToString(), "TFTP watch refusal", refusal.Length);
+
             if (_options.RefusalSource == TftpRefusalSource.TemporarySocket)
             {
                 return RefuseFromTemporarySocket(refusal, source, arrivalAddress);
@@ -377,6 +400,10 @@ public sealed class TftpWatchServer
                 $"recorded, and refused from UDP/{port} so the controller stops rather than "
                     + "retransmitting",
                 from);
+        }
+        catch (TransmitBlockedException)
+        {
+            return (TftpWatchAction.Ignored, "recorded; listen-only mode is on, so no refusal was sent", null);
         }
         catch (SocketException ex)
         {
@@ -613,8 +640,13 @@ public sealed class TftpWatchServer
     {
         try
         {
+            NetworkGuard.Shared.Acquire(TransmitKind.Tftp, source.ToString(), "TFTP refusal", 0);
             listener.SendTo(TftpPacket.EncodeError(code, message), SocketFlags.None, source);
             Raise(args(TftpWatchAction.Refused, reason));
+        }
+        catch (TransmitBlockedException)
+        {
+            Raise(args(TftpWatchAction.Ignored, reason + "; listen-only mode is on, so no refusal was sent"));
         }
         catch (SocketException ex)
         {
@@ -639,6 +671,9 @@ public sealed class TftpWatchServer
             socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
             socket.Bind(new IPEndPoint(local, 0));
 
+            NetworkGuard.Shared.Acquire(
+                TransmitKind.Tftp, source.ToString(), $"TFTP {(request.IsWrite ? "receive" : "send")} \"{request.FileName}\"", 0);
+
             outcome = request.IsWrite
                 ? await ReceiveFileAsync(socket, request, source, path).ConfigureAwait(false)
                 : await SendFileAsync(socket, request, source, path).ConfigureAwait(false);
@@ -646,6 +681,10 @@ public sealed class TftpWatchServer
         catch (OperationCanceledException)
         {
             outcome = new TftpTransferOutcome(false, NoStats, "The watch was stopped during the transfer.");
+        }
+        catch (TransmitBlockedException ex)
+        {
+            outcome = new TftpTransferOutcome(false, NoStats, ex.Message, ex.Remediation);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SocketException)
         {

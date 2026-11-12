@@ -59,7 +59,11 @@ src/NetControl.Core/          network engine - MUST NOT reference any UI assembl
     Profinet/                 PROFINET DCP codec, station-name rules, identify/get/set client
     DeviceHealth/             the read-only CIP diagnostics read and what its counters mean
     Reporting/                the commissioning report, and reading outcomes back out of the record
-    Diagnostics/              the rolling diagnostic log - NOT the commissioning record
+    Diagnostics/              the rolling diagnostic log - NOT the commissioning record - and
+                              NetTrace, the ambient log the engines write to
+    Safety/                   NetworkGuard: listen-only, the send cap, the sent-packet ledger
+    Analysis/                 Troubleshooter (+ runner), AddressConflictDetector, TrafficMonitor,
+                              PingMonitor - all read-only except the monitor's pings
     Tftp/                     RFC 1350 codec + the server root check - the image-backup half
     Oui/                      packed IEEE vendor table + the embedded oui.bin
 src/NetControl.App/           WPF front end - net10.0-windows; see its README
@@ -222,6 +226,18 @@ These are hard rules, not preferences:
   read back.** Identify All (multicast) is discovery and the only frame sent to more than one device.
   `DcpClient` refuses a multicast or broadcast target, sends a Set once with no retry, and the tab
   calls it done only when a DCP Get shows the new value. A null confirmation refuses.
+- **Every transmission passes `NetworkGuard` (`Core/Safety`).** It is the one place listen-only
+  mode is enforced, the global send cap is applied, and the sent-packet ledger is written. A new
+  send path - a socket `SendTo`, a TCP connect, a ping, a raw frame - calls `AcquireAsync`/`Acquire`
+  immediately before it sends, or `ThrowIfListenOnly` for packets inside an exchange the user already
+  started (a TFTP transfer's blocks). Callers handle `TransmitBlockedException` as an expected
+  outcome, never as a crash. Tests that toggle listen-only build their own guard; the shared one is
+  used by every engine in every other test.
+- **A device's behaviour must not set this tool's rate.** `DhcpServer` handles at most
+  `MaxRequestsPerClientPerSecond` per MAC and answers at most `MaxRepliesPerClientPerSecond`
+  (`ClientRateLimiter`, bounded); the excess is summarised every five seconds. Anything that grows
+  per MAC, per address or per frame has a cap (`PassiveInventory.MaxDevices`,
+  `TrafficMonitor.MaxSources`, `AddressConflictDetector.MaxAddresses`, the ledger and log buffers).
 - **Set static on all is the single sequence, repeated, behind a confirmation that names every
   device.** One device at a time, each unicast at its own planned address; Stop lands between
   devices, never inside one. A null confirmation callback refuses rather than proceeds.

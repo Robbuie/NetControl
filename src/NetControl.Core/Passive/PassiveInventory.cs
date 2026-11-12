@@ -20,6 +20,13 @@ public sealed class PassiveInventory
 
     private const int MaxNames = 4;
 
+    /// <summary>
+    /// Devices held at once. A segment with more than this is not a controls network, and a switch
+    /// failing open or a MAC-flooding tool can produce a new source MAC per frame - past this,
+    /// new MACs are counted in <see cref="Overflow"/> rather than remembered.
+    /// </summary>
+    public const int MaxDevices = 4096;
+
     private readonly IOuiLookup? _oui;
     private readonly Dictionary<MacAddress, Entry> _devices = [];
     private readonly Lock _gate = new();
@@ -28,6 +35,9 @@ public sealed class PassiveInventory
 
     /// <summary>Frames that turned into a sighting.</summary>
     public long Frames { get; private set; }
+
+    /// <summary>Sightings of new MACs not kept because <see cref="MaxDevices"/> was reached.</summary>
+    public long Overflow { get; private set; }
 
     public int Count
     {
@@ -52,6 +62,12 @@ public sealed class PassiveInventory
 
             if (entry is null)
             {
+                if (_devices.Count >= MaxDevices)
+                {
+                    Overflow++;
+                    return false;
+                }
+
                 entry = new Entry(sighting.Mac, utc);
                 _devices[sighting.Mac] = entry;
             }
@@ -76,6 +92,7 @@ public sealed class PassiveInventory
         {
             _devices.Clear();
             Frames = 0;
+            Overflow = 0;
         }
     }
 

@@ -12,10 +12,12 @@ using NetControl.App.Composition;
 using NetControl.App.Diagnostics;
 using NetControl.App.Serving;
 using NetControl.Core;
+using NetControl.Core.Analysis;
 using NetControl.Core.Capture;
 using NetControl.Core.Commissioning;
 using NetControl.Core.DeviceHealth;
 using NetControl.Core.Dhcp;
+using NetControl.Core.Diagnostics;
 using NetControl.Core.Discovery;
 using NetControl.Core.Enip;
 using NetControl.Core.Interfaces;
@@ -23,6 +25,7 @@ using NetControl.Core.Oui;
 using NetControl.Core.Persistence;
 using NetControl.Core.Reachability;
 using NetControl.Core.Reporting;
+using NetControl.Core.Safety;
 using NetControl.Core.Tftp;
 
 // Shares a name with this type's Plan property, which is the grid. Nothing here refers to the
@@ -188,7 +191,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         ICaptureProvider? capture = null,
         SubnetSweep? sweep = null,
         IAdapterConfigurator? adapterConfigurator = null,
-        IAdapterSnapshotStore? adapterSnapshots = null)
+        IAdapterSnapshotStore? adapterSnapshots = null,
+        IArpLookup? arp = null,
+        NetworkGuard? guard = null,
+        ITraceLog? trace = null,
+        Action<SafetySettings>? saveSafety = null)
     {
         ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentNullException.ThrowIfNull(nics);
@@ -249,7 +256,27 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         // Both raw-Ethernet tabs share one provider. Nothing in it is touched until a tab asks - a
         // machine without Npcap never so much as looks for the driver.
         ICaptureProvider frames = capture ?? new NpcapProvider();
-        Passive = new PassiveViewModel(dispatcher, () => _project, () => InterfaceBar.SelectedAdapter?.Nic, frames, oui);
+        // Network health: Troubleshoot, the address-conflict watch and the ping monitor. Built before
+        // Passive, because the Passive tab feeds the conflict detector every ARP frame it hears.
+        Guard = guard ?? NetworkGuard.Shared;
+        Trace = trace ?? NullTraceLog.Instance;
+        _saveSafety = saveSafety;
+        Health = new NetworkHealthViewModel(
+            dispatcher,
+            () => _project,
+            () => InterfaceBar.SelectedAdapter?.Nic,
+            () => _nics.Snapshot(),
+            Plan,
+            UnplannedAskers,
+            () => Passive is { } passive ? passive.LiveTraffic : null,
+            pinger ?? new IcmpPinger(),
+            arp ?? new ArpTable(),
+            Guard,
+            _time);
+
+        Passive = new PassiveViewModel(dispatcher, () => _project, () => InterfaceBar.SelectedAdapter?.Nic, frames, oui, Health.Detector);
+
+        Guard.Changed += OnGuardChanged;
         Profinet = new ProfinetViewModel(() => _project, () => InterfaceBar.SelectedAdapter?.Nic, frames);
 
         InterfaceBar.PropertyChanged += OnInterfaceBarPropertyChanged;
@@ -276,6 +303,15 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     }
 
     public InterfaceBarViewModel InterfaceBar { get; }
+
+    /// <summary>The Network health tab: Troubleshoot, address conflicts and the ping monitor.</summary>
+    public NetworkHealthViewModel Health { get; }
+
+    /// <summary>The transmit gate: listen-only, the send cap, and the ledger of everything sent.</summary>
+    public NetworkGuard Guard { get; }
+
+    /// <summary>The diagnostic log, for the in-app viewer and the support bundle.</summary>
+    public ITraceLog Trace { get; }
 
     public RequestLogViewModel Log { get; }
 
@@ -879,6 +915,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
         _server.RecordingFailed -= OnRecordingFailed;
         _server.StateChanged -= OnServerStateChanged;
 
+        Guard.Changed -= OnGuardChanged;
+        Health.Dispose();
         _server.Dispose();
         Tftp.Dispose();
         _project.Dispose();
@@ -1143,6 +1181,13 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             Log.AddNotice(ex.Message, ex.Remediation);
             return null;
         }
+        catch (TransmitBlockedException ex)
+        {
+            SetError(ex.Message, ex.Remediation);
+            Scan.Status = ex.Message;
+            Log.AddNotice(ex.Message, ex.Remediation);
+            return null;
+        }
     }
 
     /// <summary>
@@ -1162,6 +1207,11 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return result;
         }
         catch (EnipException ex)
+        {
+            Log.AddNotice(ex.Message, ex.Remediation);
+            return null;
+        }
+        catch (TransmitBlockedException ex)
         {
             Log.AddNotice(ex.Message, ex.Remediation);
             return null;
@@ -1228,6 +1278,12 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
             return result;
         }
         catch (ReachabilityException ex)
+        {
+            finished = true;
+            Log.AddNotice($"Not swept: {ex.Message}", ex.Remediation);
+            return null;
+        }
+        catch (TransmitBlockedException ex)
         {
             finished = true;
             Log.AddNotice($"Not swept: {ex.Message}", ex.Remediation);
@@ -1668,7 +1724,8 @@ public sealed partial class MainViewModel : ObservableObject, IDisposable
     private bool CanStartServe() =>
         CanStartWatch()
         && IsServeArmed
-        && InterfaceBar.CanArmServeMode;
+        && InterfaceBar.CanArmServeMode
+        && !Guard.ListenOnly;
 
     private bool CanStop() => RunState is ServerRunState.Listening;
 

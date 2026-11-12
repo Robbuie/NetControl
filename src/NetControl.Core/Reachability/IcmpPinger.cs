@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using NetControl.Core.Safety;
 
 namespace NetControl.Core.Reachability;
 
@@ -23,6 +24,10 @@ public sealed class IcmpPinger : IPinger
         IPAddress address, TimeSpan timeout, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(address);
+
+        await NetworkGuard.Shared
+            .AcquireAsync(TransmitKind.Ping, address.ToString(), "ping", Payload.Length, cancellationToken)
+            .ConfigureAwait(false);
 
         using var ping = new Ping();
 

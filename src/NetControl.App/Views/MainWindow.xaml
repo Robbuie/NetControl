@@ -63,6 +63,11 @@
         <MenuItem Header="_Tools">
           <MenuItem Header="Set adapter _address..." Click="OnAdapterSetup"
                     ToolTip="This laptop's IP address, mask and gateway on the selected adapter." />
+          <MenuItem Header="_Network health" Click="OnShowHealthTab"
+                    ToolTip="Troubleshoot, address conflicts and the ping monitor." />
+          <MenuItem Header="Network _activity and safety..." Click="OnNetworkActivity"
+                    ToolTip="Every packet NetControl has sent this session, listen-only mode and the send cap." />
+          <Separator />
           <MenuItem Header="_Subnet calculator..." Click="OnSubnetCalculator"
                     ToolTip="Network, broadcast, host range and mask for an address and prefix - and whether another address is on it. Opens on the selected adapter's own subnet." />
           <Separator />
@@ -86,6 +91,10 @@
           <MenuItem Header="_Releases page" Click="OnOpenReleases"
                     ToolTip="Opens the download page in a browser. Needs a machine with a route out - most plant laptops do not have one." />
           <Separator />
+          <MenuItem Header="Diagnostic _log..." Click="OnLogViewer"
+                    ToolTip="The diagnostic log as it is written, with filters and a verbose switch that adds every packet sent and received." />
+          <MenuItem Header="Export _support bundle..." Click="OnExportSupportBundle"
+                    ToolTip="Zips the diagnostic logs, this PC's adapters, the sent-packet list, the last troubleshoot and the project's event record - one file to send to whoever is helping." />
           <MenuItem Header="Open the _diagnostic log folder" Click="OnOpenLogFolder"
                     ToolTip="Why the application misbehaved. Not the commissioning record - that is the event log inside the project file, and nothing can edit it." />
           <Separator />
@@ -173,6 +182,15 @@
                     Click="OnAdapterSetup"
                     ToolTip="Sets this laptop's IP address, mask and gateway on the selected adapter - from one of the plan's subnets, a profile saved in the project, or typed - and puts it back afterwards." />
 
+            <!-- The one switch that makes this tool safe to leave plugged into a running line: with it
+                 on, nothing anywhere in the app transmits. Remembered across restarts. -->
+            <CheckBox Content="Listen only"
+                      VerticalAlignment="Center"
+                      Margin="0,0,12,0"
+                      FontWeight="SemiBold"
+                      IsChecked="{Binding IsListenOnly}"
+                      ToolTip="Nothing is transmitted while this is ticked - no scan, ping, Set static, DHCP reply, TFTP refusal or PROFINET frame. Watching, Passive listening and every local check keep working. Remembered when NetControl is restarted." />
+
             <!-- Serve is armed separately from being started. Two deliberate actions, because a
                  rogue DHCP server on a plant network is a genuinely serious incident. -->
             <CheckBox Content="Arm serve"
@@ -223,6 +241,15 @@
           <TextBlock TextWrapping="Wrap"
                      Foreground="{DynamicResource warn}"
                      Text="{Binding InterfaceBar.MisdirectedTraffic}" />
+        </Border>
+
+        <Border Margin="22,8,0,0" Padding="8,5"
+                Background="{DynamicResource notice-warn}"
+                BorderBrush="{DynamicResource warn}"
+                BorderThickness="1"
+                Visibility="{Binding IsListenOnly, Converter={StaticResource BoolToVisible}}">
+          <TextBlock TextWrapping="Wrap" Foreground="{DynamicResource warn}"
+                     Text="Listen only: NetControl is not transmitting anything. Requests are still logged and Passive listening still works; scans, pings, Set static and DHCP replies are refused until it is turned off." />
         </Border>
 
         <Border Margin="22,8,0,0" Padding="8,5"
@@ -285,6 +312,12 @@
           <!-- Which build this is. The first question anybody asks about an exe somebody copied
                onto a laptop, and the same string the project file records - so a commissioning
                record and the tool in front of you can be matched without opening either. -->
+          <TextBlock Style="{StaticResource Muted}" Text="  -  " />
+          <TextBlock Style="{StaticResource Muted}"
+                     Cursor="Hand"
+                     Text="{Binding NetworkActivityText}"
+                     MouseLeftButtonUp="OnNetworkActivityClicked"
+                     ToolTip="Everything NetControl has put on the network this session. Click for the list, the send cap and listen-only." />
           <TextBlock Style="{StaticResource Muted}" Text="  -  " />
           <TextBlock Style="{StaticResource Muted}"
                      Text="{Binding VersionText, Mode=OneTime}"
@@ -1334,6 +1367,203 @@
           </DockPanel>
         </TabItem>
 
+        <!-- ============================ Network health ============================
+             Troubleshoot: one button, every check, worst first, each with the next step. Beside it,
+             the two things that catch intermittent faults a single check cannot: two devices on one
+             address, and a device that drops out every few minutes. Nothing here starts by itself;
+             the ARP watch sends nothing, and the pings go through the same listen-only gate as
+             everything else. -->
+        <TabItem Header="Network health" x:Name="HealthTab">
+          <Grid Margin="10,8,10,8">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="*" MinHeight="160" />
+              <RowDefinition Height="8" />
+              <RowDefinition Height="*" MinHeight="160" />
+            </Grid.RowDefinitions>
+
+            <!-- Troubleshoot -->
+            <Border Grid.Row="0" Style="{StaticResource Card}" Padding="12,8">
+              <DockPanel>
+                <DockPanel DockPanel.Dock="Top">
+                  <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                    <CheckBox Content="Include ping checks" VerticalAlignment="Center" Margin="0,0,10,0"
+                              IsChecked="{Binding Health.IncludePingChecks}"
+                              ToolTip="Also pings the gateway and every planned device on this PC's own subnets - one echo each, retried once, four at a time. Skipped in listen-only mode." />
+                    <Button Content="Troubleshoot" Style="{StaticResource PrimaryButton}"
+                            Command="{Binding Health.RunTroubleshootCommand}"
+                            ToolTip="Checks this PC's adapter, cable and counters, what else holds UDP/67, the firewall, address conflicts, the plan against the ARP table, and the traffic the Passive tab is hearing. Takes a few seconds." />
+                    <Button Content="Cancel" Command="{Binding Health.CancelTroubleshootCommand}" />
+                    <Button Content="Copy" Click="OnCopyFindings"
+                            ToolTip="Copies the findings as text, for an email or a ticket." />
+                  </StackPanel>
+                  <TextBlock Style="{StaticResource PanelHead}" Text="Troubleshoot" VerticalAlignment="Center" />
+                </DockPanel>
+
+                <TextBlock DockPanel.Dock="Top" Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,4,0,6"
+                           Text="{Binding Health.TroubleshootStatus}" />
+
+                <Border DockPanel.Dock="Top" Style="{StaticResource FaultNotice}" Margin="0,0,0,6"
+                        Visibility="{Binding Health.ErrorMessage, Converter={StaticResource NotNullToVisible}}">
+                  <StackPanel>
+                    <TextBlock Style="{StaticResource FaultText}" TextWrapping="Wrap" Text="{Binding Health.ErrorMessage}" />
+                    <TextBlock Style="{StaticResource FaultText}" Margin="0,4,0,0" TextWrapping="Wrap"
+                               Visibility="{Binding Health.ErrorRemediation, Converter={StaticResource NotNullToVisible}}"
+                               Text="{Binding Health.ErrorRemediation}" />
+                  </StackPanel>
+                </Border>
+
+                <ListBox ItemsSource="{Binding Health.Findings}" BorderThickness="0"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         VirtualizingPanel.ScrollUnit="Pixel">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate>
+                      <Grid Margin="0,3,0,5">
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="Auto" />
+                          <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Ellipse Grid.Column="0" Width="10" Height="10" Margin="0,4,8,0" VerticalAlignment="Top"
+                                 Fill="{Binding Severity, Converter={StaticResource FindingBrush}}" />
+                        <StackPanel Grid.Column="1">
+                          <TextBlock TextWrapping="Wrap">
+                            <Run Text="{Binding SeverityText, Mode=OneWay}" FontWeight="SemiBold" />
+                            <Run Text=" - " />
+                            <Run Text="{Binding Area, Mode=OneWay}" Foreground="{DynamicResource txt-2}" />
+                            <Run Text=": " />
+                            <Run Text="{Binding Title, Mode=OneWay}" FontWeight="SemiBold" />
+                          </TextBlock>
+                          <TextBlock Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,1,0,0"
+                                     Text="{Binding Detail}" />
+                          <TextBlock TextWrapping="Wrap" Margin="0,1,0,0"
+                                     Visibility="{Binding NextStep, Converter={StaticResource NotNullToVisible}}">
+                            <Run Text="Next: " FontWeight="SemiBold" /><Run Text="{Binding NextStep, Mode=OneWay}" />
+                          </TextBlock>
+                        </StackPanel>
+                      </Grid>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+              </DockPanel>
+            </Border>
+
+            <Grid Grid.Row="2">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="3*" />
+                <ColumnDefinition Width="8" />
+                <ColumnDefinition Width="2*" />
+              </Grid.ColumnDefinitions>
+
+              <!-- Ping monitor -->
+              <Border Grid.Column="0" Style="{StaticResource Card}" Padding="12,8">
+                <DockPanel>
+                  <TextBlock DockPanel.Dock="Top" Style="{StaticResource PanelHead}" Text="Ping monitor" />
+                  <WrapPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,4,0,4">
+                    <TextBox Width="130" VerticalAlignment="Center" FontFamily="{DynamicResource mono}"
+                             Text="{Binding Health.PingTargetText, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="An address to watch. One host - broadcast and multicast are refused." />
+                    <Button Content="Add" Command="{Binding Health.AddTargetCommand}" IsDefault="False" />
+                    <Button Content="Add selected plan rows" Command="{Binding Health.AddSelectedPlanRowsCommand}"
+                            ToolTip="Adds the plan rows selected on the plan grid, named as the plan names them." />
+                    <Button Content="Remove" Command="{Binding Health.RemoveTargetCommand}" />
+                    <TextBlock Text="every" VerticalAlignment="Center" Margin="10,0,4,0" />
+                    <TextBox Width="56" VerticalAlignment="Center" Text="{Binding Health.IntervalText}"
+                             ToolTip="Milliseconds between rounds. 500 at the least." />
+                    <TextBlock Text="ms" VerticalAlignment="Center" Margin="4,0,10,0" />
+                    <Button Content="Start" Style="{StaticResource PrimaryButton}" Command="{Binding Health.StartMonitorCommand}"
+                            ToolTip="One echo per address per round, at most eight at once, through the send cap. Recorded in the project when it starts and stops, and whenever a device goes down or comes back." />
+                    <Button Content="Stop" Command="{Binding Health.StopMonitorCommand}" />
+                    <Button Content="Reset" Command="{Binding Health.ResetMonitorCommand}" ToolTip="Zeroes the statistics; keeps the list." />
+                  </WrapPanel>
+                  <TextBlock DockPanel.Dock="Top" Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,0,0,4"
+                             Text="{Binding Health.MonitorStatus}"
+                             Visibility="{Binding Health.MonitorStatus, Converter={StaticResource NotNullToVisible}}" />
+                  <DataGrid ItemsSource="{Binding Health.Targets}"
+                            SelectedItem="{Binding Health.SelectedTarget}"
+                            AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" CanUserDeleteRows="False"
+                            SelectionMode="Single" HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                            RowHeaderWidth="0" BorderThickness="0">
+                    <DataGrid.RowStyle>
+                      <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
+                        <Setter Property="ToolTip" Value="{Binding Tooltip}" />
+                        <Style.Triggers>
+                          <DataTrigger Binding="{Binding IsDropping}" Value="True">
+                            <Setter Property="Background" Value="{DynamicResource row-warn}" />
+                          </DataTrigger>
+                          <DataTrigger Binding="{Binding IsDown}" Value="True">
+                            <Setter Property="Background" Value="{DynamicResource row-bad}" />
+                          </DataTrigger>
+                        </Style.Triggers>
+                      </Style>
+                    </DataGrid.RowStyle>
+                    <DataGrid.Columns>
+                      <DataGridTextColumn Header="Address" Width="110" Binding="{Binding AddressText, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                      <DataGridTextColumn Header="Name" Width="120" Binding="{Binding Name, Mode=OneWay}" />
+                      <DataGridTextColumn Header="State" Width="62" Binding="{Binding State, Mode=OneWay}" />
+                      <DataGridTextColumn Header="Last" Width="56" Binding="{Binding Last, Mode=OneWay}" />
+                      <DataGridTextColumn Header="Min / avg / max" Width="130" Binding="{Binding Range, Mode=OneWay}" />
+                      <DataGridTextColumn Header="Jitter" Width="56" Binding="{Binding Jitter, Mode=OneWay}" />
+                      <DataGridTextColumn Header="Loss" Width="100" Binding="{Binding Loss, Mode=OneWay}" />
+                      <DataGridTextColumn Header="Outages" Width="120" Binding="{Binding OutagesText, Mode=OneWay}" />
+                      <DataGridTemplateColumn Header="Last two minutes" Width="*" MinWidth="130">
+                        <DataGridTemplateColumn.CellTemplate>
+                          <DataTemplate>
+                            <Canvas Width="120" Height="18" Margin="2,1" HorizontalAlignment="Left">
+                              <Polyline Points="{Binding Sparkline}" Stroke="{DynamicResource accent}" StrokeThickness="1.2" />
+                            </Canvas>
+                          </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                      </DataGridTemplateColumn>
+                    </DataGrid.Columns>
+                  </DataGrid>
+                </DockPanel>
+              </Border>
+
+              <!-- Address conflicts -->
+              <Border Grid.Column="2" Style="{StaticResource Card}" Padding="12,8">
+                <DockPanel>
+                  <DockPanel DockPanel.Dock="Top">
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                      <CheckBox Content="Watch ARP table" VerticalAlignment="Center" Margin="0,0,8,0"
+                                IsChecked="{Binding Health.IsWatchingArp}"
+                                ToolTip="Reads this PC's own ARP table every few seconds. Nothing is sent." />
+                      <Button Content="Clear" Command="{Binding Health.ClearConflictsCommand}" />
+                    </StackPanel>
+                    <TextBlock Style="{StaticResource PanelHead}" Text="Address conflicts" VerticalAlignment="Center" />
+                  </DockPanel>
+                  <TextBlock DockPanel.Dock="Top" Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,4,0,2"
+                             Text="{Binding Health.ArpWatchText}" />
+                  <TextBlock DockPanel.Dock="Top" Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,0,0,4"
+                             Text="{Binding Health.ConflictStatus}"
+                             Visibility="{Binding Health.ConflictStatus, Converter={StaticResource NotNullToVisible}}" />
+                  <DataGrid ItemsSource="{Binding Health.Conflicts}"
+                            AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" CanUserDeleteRows="False"
+                            SelectionMode="Single" HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                            RowHeaderWidth="0" BorderThickness="0">
+                    <DataGrid.RowStyle>
+                      <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
+                        <Setter Property="ToolTip" Value="{Binding Detail}" />
+                        <Setter Property="Background" Value="{DynamicResource row-warn}" />
+                        <Style.Triggers>
+                          <DataTrigger Binding="{Binding IsError}" Value="True">
+                            <Setter Property="Background" Value="{DynamicResource row-bad}" />
+                          </DataTrigger>
+                        </Style.Triggers>
+                      </Style>
+                    </DataGrid.RowStyle>
+                    <DataGrid.Columns>
+                      <DataGridTextColumn Header="Address" Width="105" Binding="{Binding AddressText, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                      <DataGridTextColumn Header="Claimed by" Width="150" Binding="{Binding Macs, Mode=OneWay}" ElementStyle="{StaticResource MonoText}" />
+                      <DataGridTextColumn Header="Heard" Width="90" Binding="{Binding Heard, Mode=OneWay}" />
+                      <DataGridTextColumn Header="Last" Width="60" Binding="{Binding LastSeen, Mode=OneWay}" />
+                      <DataGridTextColumn Header="What" Width="*" Binding="{Binding Title, Mode=OneWay}" />
+                    </DataGrid.Columns>
+                  </DataGrid>
+                </DockPanel>
+              </Border>
+            </Grid>
+          </Grid>
+        </TabItem>
+
         <!-- ============================== Diagnostics ==============================
              PLAN-TOOLKIT.md F1-F3. One device, three questions: does anything answer at its
              address, what does it say about its own health over EtherNet/IP, and which services does
@@ -1713,6 +1943,67 @@
                            Visibility="{Binding Passive.ErrorRemediation, Converter={StaticResource NotNullToVisible}}"
                            Text="{Binding Passive.ErrorRemediation}" />
               </StackPanel>
+            </Border>
+
+            <!-- Traffic health: what the frames heard add up to - storms, a device shouting over the rest,
+                 spanning tree reorganising, another DHCP server answering. Counted from the same frames,
+                 so it costs nothing on the wire either. -->
+            <Border DockPanel.Dock="Top" Style="{StaticResource Card}" Margin="10,0,10,8" Padding="12,8">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="3*" />
+                  <ColumnDefinition Width="12" />
+                  <ColumnDefinition Width="2*" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                  <TextBlock Style="{StaticResource PanelHead}" Text="{Binding Passive.TrafficHeadline}" TextWrapping="Wrap" />
+                  <TextBlock Style="{StaticResource Muted}" TextWrapping="Wrap" Margin="0,2,0,4" Text="{Binding Passive.TrafficRates}" />
+                  <ItemsControl ItemsSource="{Binding Passive.Traffic.Findings}" MaxHeight="150">
+                    <ItemsControl.Template>
+                      <ControlTemplate TargetType="ItemsControl">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto"><ItemsPresenter /></ScrollViewer>
+                      </ControlTemplate>
+                    </ItemsControl.Template>
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <Grid Margin="0,2,0,3">
+                          <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                          </Grid.ColumnDefinitions>
+                          <Ellipse Width="9" Height="9" Margin="0,4,6,0" VerticalAlignment="Top"
+                                   Fill="{Binding Severity, Converter={StaticResource FindingBrush}}" />
+                          <StackPanel Grid.Column="1">
+                            <TextBlock FontWeight="SemiBold" TextWrapping="Wrap" Text="{Binding Title}" />
+                            <TextBlock Style="{StaticResource Muted}" TextWrapping="Wrap" Text="{Binding Detail}" />
+                            <TextBlock TextWrapping="Wrap" Visibility="{Binding NextStep, Converter={StaticResource NotNullToVisible}}">
+                              <Run Text="Next: " FontWeight="SemiBold" /><Run Text="{Binding NextStep, Mode=OneWay}" />
+                            </TextBlock>
+                          </StackPanel>
+                        </Grid>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+                <StackPanel Grid.Column="2">
+                  <TextBlock Style="{StaticResource PanelHead}" Text="Top talkers (frames a second)" />
+                  <ItemsControl ItemsSource="{Binding Passive.Traffic.TopTalkers}" Margin="0,2,0,0">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <TextBlock FontFamily="{DynamicResource mono}" FontSize="12" TextTrimming="CharacterEllipsis">
+                          <Run Text="{Binding PerSecond, Mode=OneWay, StringFormat='{}{0:0}'}" />
+                          <Run Text="  " />
+                          <Run Text="{Binding Mac, Mode=OneWay}" />
+                          <Run Text="  " />
+                          <Run Text="{Binding Address, Mode=OneWay}" />
+                          <Run Text="  " />
+                          <Run Text="{Binding Vendor, Mode=OneWay}" Foreground="{DynamicResource txt-2}" />
+                        </TextBlock>
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                </StackPanel>
+              </Grid>
             </Border>
 
             <Border Style="{StaticResource Card}" Margin="10,0,10,8" Padding="4">

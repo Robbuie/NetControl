@@ -45,4 +45,20 @@ public sealed record DhcpServerOptions
     /// leaves replies exactly as they were before these existed.
     /// </summary>
     public BootOptions Boot { get; init; } = BootOptions.None;
+
+    /// <summary>
+    /// Requests handled per client MAC per second. Past this, requests from that MAC are counted and
+    /// summarised every few seconds instead of being logged, recorded and answered one by one - a
+    /// device in a reboot loop must not be able to fill the log, the project file, or the segment.
+    /// </summary>
+    public int MaxRequestsPerClientPerSecond { get; init; } = 10;
+
+    /// <summary>
+    /// Replies sent per client MAC per second. A DHCP exchange needs two (offer, acknowledge); four
+    /// leaves room for a retransmit without ever letting this server become a broadcast storm.
+    /// </summary>
+    public int MaxRepliesPerClientPerSecond { get; init; } = 4;
+
+    /// <summary>The transmit gate - listen-only and the global rate cap. Null means the shared one.</summary>
+    public Safety.NetworkGuard? Guard { get; init; }
 }

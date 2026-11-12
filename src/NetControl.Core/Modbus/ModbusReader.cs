@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using NetControl.Core.Reachability;
+using NetControl.Core.Safety;
 
 namespace NetControl.Core.Modbus;
 
@@ -37,6 +38,10 @@ public sealed class ModbusReader
         }
 
         ushort transaction = unchecked(_transaction++);
+        await NetworkGuard.Shared
+            .AcquireAsync(TransmitKind.TcpConnect, $"{request.Address}:{request.Port}", "Modbus read", 0, cancellationToken)
+            .ConfigureAwait(false);
+
         long started = Stopwatch.GetTimestamp();
 
         using var client = new TcpClient(AddressFamily.InterNetwork);

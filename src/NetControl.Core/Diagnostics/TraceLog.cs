@@ -14,9 +14,14 @@ namespace NetControl.Core.Diagnostics;
 /// under two hundred lines, so it is under two hundred lines - the same argument that produced
 /// <c>CsvFile</c> and the packed OUI table rather than two more packages.</para>
 ///
-/// <para><b>Every line is flushed.</b> The single most valuable entry in this file is the last one
-/// before a crash, and a buffered writer is precisely the thing that loses it. This costs
-/// throughput that a tool writing a few lines a minute does not have to care about.</para>
+/// <para><b>Every ordinary line is flushed.</b> The single most valuable entry in this file is the
+/// last one before a crash, and a buffered writer is precisely the thing that loses it. The verbose
+/// detail level (<see cref="IsVerbose"/>) is the exception: it can run to hundreds of lines a second,
+/// so its lines ride out with the next ordinary line or a two-second timer, and past
+/// <see cref="VerboseLinesPerSecond"/> they are summarised rather than written.</para>
+///
+/// <para><b>It also feeds the in-app viewer</b>: the last <see cref="RecentCapacity"/> lines are kept
+/// in memory and each is raised through <see cref="LineWritten"/>, whether or not the file is writable.</para>
 ///
 /// <para><b>It fails silently, once.</b> If the disk is full or the folder is read-only, the log
 /// disables itself and records why in <see cref="LastFailure"/> rather than throwing into whatever
@@ -37,6 +42,27 @@ public sealed class TraceLog : ITraceLog, IDisposable
     private readonly TimeProvider _time;
     private readonly int _keepFiles;
     private readonly long _maxBytes;
+
+    /// <summary>How many recent lines the in-app viewer can scroll back through.</summary>
+    public const int RecentCapacity = 2000;
+
+    /// <summary>
+    /// Verbose lines allowed per second. A scan of a /22 or a busy capture can produce thousands of
+    /// detail lines a second; past this they are counted and summarised in one line instead, so the
+    /// detailed trace can never become the thing that slows the tool down or fills the disk.
+    /// </summary>
+    public const int VerboseLinesPerSecond = 200;
+
+    private readonly TraceLine?[] _recent = new TraceLine?[RecentCapacity];
+    private int _recentNext;
+    private int _recentCount;
+
+    private volatile bool _verbose;
+    private long _verboseWindowStart;
+    private int _verboseInWindow;
+    private int _verboseDropped;
+    private bool _unflushed;
+    private Timer? _flushTimer;
 
     private StreamWriter? _writer;
     private DateOnly _day;
@@ -61,6 +87,43 @@ public sealed class TraceLog : ITraceLog, IDisposable
 
     /// <summary>Why it gave up, for a status line somewhere. Null while it is working.</summary>
     public string? LastFailure { get; private set; }
+
+    /// <summary>
+    /// The detailed trace: what each engine sent and received. Off by default. Detail lines are not
+    /// flushed one by one - they ride out with the next ordinary line, or within two seconds - which
+    /// is what keeps a chatty session from turning into one disk write per packet.
+    /// </summary>
+    public bool IsVerbose
+    {
+        get => _verbose;
+        set => _verbose = value;
+    }
+
+    /// <summary>
+    /// Raised after every line is written, on the writing thread. A handler must be quick and must
+    /// marshal to the UI itself; one that throws is ignored.
+    /// </summary>
+    public event EventHandler<TraceLine>? LineWritten;
+
+    /// <summary>The most recent lines, oldest first - up to <see cref="RecentCapacity"/>.</summary>
+    public IReadOnlyList<TraceLine> Recent()
+    {
+        lock (_gate)
+        {
+            var lines = new List<TraceLine>(_recentCount);
+            int start = (_recentNext - _recentCount + RecentCapacity) % RecentCapacity;
+
+            for (int i = 0; i < _recentCount; i++)
+            {
+                if (_recent[(start + i) % RecentCapacity] is { } line)
+                {
+                    lines.Add(line);
+                }
+            }
+
+            return lines;
+        }
+    }
 
     /// <summary>
     /// Opens a log in <paramref name="directory"/>, creating it if needed.
@@ -99,49 +162,216 @@ public sealed class TraceLog : ITraceLog, IDisposable
 
     public void Write(EventSeverity severity, string message, Exception? error = null)
     {
-        if (_disabled || _disposed)
+        if (_disposed)
         {
             return;
         }
 
+        string level = Label(severity).Trim();
+        TraceLine? written = null;
+
         lock (_gate)
         {
-            if (_disabled || _disposed)
+            if (_disposed)
+            {
+                return;
+            }
+
+            DateTimeOffset at = _time.GetUtcNow();
+            written = Remember(new TraceLine(at, level, OneLine(message ?? string.Empty), error?.ToString()));
+
+            if (!_disabled)
+            {
+                ReportDroppedVerboseLocked(at);
+                WriteToFileLocked(severity, message ?? string.Empty, error);
+            }
+        }
+
+        Raise(written);
+    }
+
+    private void WriteToFileLocked(EventSeverity severity, string message, Exception? error)
+    {
+        if (_disabled)
+        {
+            return;
+        }
+
+        try
+        {
+            DateTimeOffset now = _time.GetUtcNow();
+
+            if (!EnsureFile(now) || _writer is null)
+            {
+                return;
+            }
+
+            string line = string.Create(
+                CultureInfo.InvariantCulture,
+                $"{now:yyyy-MM-dd HH:mm:ss.fff}Z  {Label(severity)}  {OneLine(message)}");
+
+            _writer.WriteLine(line);
+            _written += line.Length + Environment.NewLine.Length;
+
+            if (error is not null)
+            {
+                // The whole exception, stack and inner exceptions included. This file exists
+                // for the times when the one-line message turned out not to be enough.
+                string detail = error.ToString();
+                _writer.WriteLine(detail);
+                _written += detail.Length + Environment.NewLine.Length;
+            }
+
+            // Every ordinary line is flushed - the last one before a crash is the one that matters -
+            // and with it any verbose lines still waiting.
+            _writer.Flush();
+            _unflushed = false;
+        }
+        catch (Exception ex) when (IsFileTrouble(ex))
+        {
+            Disable(ex);
+        }
+    }
+
+    /// <inheritdoc />
+    public void WriteVerbose(string message)
+    {
+        if (!_verbose || _disposed)
+        {
+            return;
+        }
+
+        TraceLine? written = null;
+
+        lock (_gate)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            DateTimeOffset now = _time.GetUtcNow();
+            long second = now.ToUnixTimeSeconds();
+
+            if (second != _verboseWindowStart)
+            {
+                ReportDroppedVerboseLocked(now);
+                _verboseWindowStart = second;
+                _verboseInWindow = 0;
+            }
+
+            if (++_verboseInWindow > VerboseLinesPerSecond)
+            {
+                _verboseDropped++;
+                return;
+            }
+
+            written = Remember(new TraceLine(now, TraceLine.Debug, OneLine(message ?? string.Empty)));
+
+            if (!_disabled)
+            {
+                try
+                {
+                    if (EnsureFile(now) && _writer is not null)
+                    {
+                        string line = string.Create(
+                            CultureInfo.InvariantCulture,
+                            $"{now:yyyy-MM-dd HH:mm:ss.fff}Z  DEBUG  {written.Message}");
+
+                        _writer.WriteLine(line);
+                        _written += line.Length + Environment.NewLine.Length;
+                        _unflushed = true;
+                        _flushTimer ??= new Timer(_ => FlushPending(), null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+                    }
+                }
+                catch (Exception ex) when (IsFileTrouble(ex))
+                {
+                    Disable(ex);
+                }
+            }
+        }
+
+        Raise(written);
+    }
+
+    private void FlushPending()
+    {
+        lock (_gate)
+        {
+            if (!_unflushed || _writer is null)
             {
                 return;
             }
 
             try
             {
-                DateTimeOffset now = _time.GetUtcNow();
-
-                if (!EnsureFile(now) || _writer is null)
-                {
-                    return;
-                }
-
-                string line = string.Create(
-                    CultureInfo.InvariantCulture,
-                    $"{now:yyyy-MM-dd HH:mm:ss.fff}Z  {Label(severity)}  {OneLine(message)}");
-
-                _writer.WriteLine(line);
-                _written += line.Length + Environment.NewLine.Length;
-
-                if (error is not null)
-                {
-                    // The whole exception, stack and inner exceptions included. This file exists
-                    // for the times when the one-line message turned out not to be enough.
-                    string detail = error.ToString();
-                    _writer.WriteLine(detail);
-                    _written += detail.Length + Environment.NewLine.Length;
-                }
-
                 _writer.Flush();
+                _unflushed = false;
             }
             catch (Exception ex) when (IsFileTrouble(ex))
             {
                 Disable(ex);
             }
+        }
+    }
+
+    /// <summary>One summary line for the detail that was over the per-second allowance.</summary>
+    private void ReportDroppedVerboseLocked(DateTimeOffset now)
+    {
+        if (_verboseDropped == 0)
+        {
+            return;
+        }
+
+        int dropped = _verboseDropped;
+        _verboseDropped = 0;
+
+        string message = string.Create(
+            CultureInfo.InvariantCulture,
+            $"{dropped} verbose line(s) were not written - more than {VerboseLinesPerSecond} a second.");
+
+        Remember(new TraceLine(now, TraceLine.Debug, message));
+
+        if (_disabled || _writer is null)
+        {
+            return;
+        }
+
+        try
+        {
+            string line = string.Create(CultureInfo.InvariantCulture, $"{now:yyyy-MM-dd HH:mm:ss.fff}Z  DEBUG  {message}");
+            _writer.WriteLine(line);
+            _written += line.Length + Environment.NewLine.Length;
+            _unflushed = true;
+        }
+        catch (Exception ex) when (IsFileTrouble(ex))
+        {
+            Disable(ex);
+        }
+    }
+
+    private TraceLine Remember(TraceLine line)
+    {
+        _recent[_recentNext] = line;
+        _recentNext = (_recentNext + 1) % RecentCapacity;
+        _recentCount = Math.Min(_recentCount + 1, RecentCapacity);
+        return line;
+    }
+
+    private void Raise(TraceLine? line)
+    {
+        if (line is null || LineWritten is not { } handler)
+        {
+            return;
+        }
+
+        try
+        {
+            handler(this, line);
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            // A viewer that failed is not a reason to fail the thing being logged.
         }
     }
 
@@ -155,6 +385,8 @@ public sealed class TraceLog : ITraceLog, IDisposable
             }
 
             _disposed = true;
+            _flushTimer?.Dispose();
+            _flushTimer = null;
             Close();
         }
     }

@@ -2,6 +2,8 @@ using System.Buffers.Binary;
 using System.Net;
 using System.Net.Sockets;
 using NetControl.Core.Cip;
+using NetControl.Core.Safety;
+using NetControl.Core.Diagnostics;
 
 namespace NetControl.Core.Enip;
 
@@ -85,6 +87,10 @@ public sealed class EnipSession : IDisposable
 
         TimeSpan limit = timeout ?? TimeSpan.FromSeconds(3);
 
+        await NetworkGuard.Shared
+            .AcquireAsync(TransmitKind.TcpConnect, $"{address}:{port}", "EtherNet/IP session", 0, cancellationToken)
+            .ConfigureAwait(false);
+
         var tcp = new TcpClient { NoDelay = true };
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(limit);
@@ -138,18 +144,23 @@ public sealed class EnipSession : IDisposable
         ArgumentNullException.ThrowIfNull(request);
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        byte[] frame = BuildRRData(request.Serialize());
+        byte[] cip = request.Serialize();
+        byte[] frame = BuildRRData(cip);
+        NetTrace.Log.Debug(() => $"CIP -> {Address}: service 0x{request.Service:X2}, {Convert.ToHexString(cip)}");
 
         (uint status, byte[] payload) =
             await RoundTripAsync(CommandSendRRData, frame, _sessionHandle, cancellationToken).ConfigureAwait(false);
 
         if (status != 0)
         {
+            NetTrace.Log.Warn($"CIP <- {Address}: encapsulation status 0x{status:X8}.");
             throw new EnipException(
                 $"{Address} refused the request at the encapsulation layer (status 0x{status:X8}).");
         }
 
-        return ExtractDataItem(payload);
+        CipResponse response = ExtractDataItem(payload);
+        NetTrace.Log.Debug(() => $"CIP <- {Address}: general status 0x{response.GeneralStatus:X2}, {response.Data.Length} byte(s) {Convert.ToHexString(response.Data.AsSpan(0, Math.Min(64, response.Data.Length)))}");
+        return response;
     }
 
     public void Dispose()

@@ -8,6 +8,7 @@ using NetControl.Core.Interfaces;
 using NetControl.Core.Persistence;
 using NetControl.Core.Plan;
 using NetControl.Core.Profinet;
+using NetControl.Core.Safety;
 
 namespace NetControl.App.ViewModels;
 
@@ -354,6 +355,11 @@ public sealed partial class ProfinetViewModel : ObservableObject
             await work(new DcpClient(channel)).ConfigureAwait(true);
         }
         catch (CaptureException ex)
+        {
+            SetError(ex.Message, ex.Remediation);
+            Status = ex.Message;
+        }
+        catch (TransmitBlockedException ex)
         {
             SetError(ex.Message, ex.Remediation);
             Status = ex.Message;

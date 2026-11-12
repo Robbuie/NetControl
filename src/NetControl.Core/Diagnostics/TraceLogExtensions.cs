@@ -29,4 +29,31 @@ public static class TraceLogExtensions
         ArgumentNullException.ThrowIfNull(log);
         log.Write(EventSeverity.Error, message, error);
     }
+
+    /// <summary>
+    /// A detail line, written only while verbose logging is on. The message is built by the caller
+    /// only when it will be used: <c>log.Debug(() => $"...")</c>.
+    /// </summary>
+    public static void Debug(this ITraceLog log, Func<string> message)
+    {
+        ArgumentNullException.ThrowIfNull(log);
+        ArgumentNullException.ThrowIfNull(message);
+
+        if (!log.IsVerbose)
+        {
+            return;
+        }
+
+        string text;
+        try
+        {
+            text = message();
+        }
+        catch (Exception ex) when (ex is not OutOfMemoryException)
+        {
+            text = $"(a trace message could not be built: {ex.Message})";
+        }
+
+        log.WriteVerbose(text);
+    }
 }

@@ -9,6 +9,7 @@ using NetControl.Core.Modbus;
 using NetControl.Core.Persistence;
 using NetControl.Core.Plan;
 using NetControl.Core.Reachability;
+using NetControl.Core.Safety;
 
 namespace NetControl.App.ViewModels;
 
@@ -222,7 +223,7 @@ public sealed partial class ModbusViewModel : ObservableObject
 
             return result;
         }
-        catch (NetControlException failure) when (failure is ModbusException or ReachabilityException)
+        catch (NetControlException failure) when (failure is ModbusException or ReachabilityException or TransmitBlockedException)
         {
             SetError(failure.Message, failure.Remediation);
             Status = failure.Message;

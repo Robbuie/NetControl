@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using NetControl.Core.Reachability;
+using NetControl.Core.Safety;
 
 namespace NetControl.Core.Commissioning;
 
@@ -60,6 +61,10 @@ public static class EnipPortWaiter
     private static async Task<bool> TryConnectAsync(
         IPAddress address, int port, TimeSpan timeout, CancellationToken cancellationToken)
     {
+        await NetworkGuard.Shared
+            .AcquireAsync(TransmitKind.TcpConnect, $"{address}:{port}", "waiting for the device to come up", 0, cancellationToken)
+            .ConfigureAwait(false);
+
         using var tcp = new TcpClient { NoDelay = true };
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         deadline.CancelAfter(timeout);

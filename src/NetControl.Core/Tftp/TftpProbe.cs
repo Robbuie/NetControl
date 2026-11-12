@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
+using NetControl.Core.Safety;
 
 namespace NetControl.Core.Tftp;
 
@@ -53,6 +54,7 @@ public static class TftpProbe
         // --- Handshake: the write request, and whatever answers it. ---------------------------
         var clock = Stopwatch.StartNew();
         var buffer = new byte[TftpPacket.MaxDatagramLength];
+        NetworkGuard.Shared.Acquire(TransmitKind.Tftp, server.ToString(), $"TFTP probe write \"{options.FileName}\"", request.Length);
         socket.SendTo(request, SocketFlags.None, server);
 
         TftpTransfer.Arrival answer = default;
@@ -286,6 +288,7 @@ public static class TftpProbe
             new TftpOptions(offered));
 
         progress?.Report(new TftpProbeProgress("Reading back", 0, options.SizeBytes));
+        NetworkGuard.Shared.Acquire(TransmitKind.Tftp, server.ToString(), $"TFTP probe read-back \"{options.FileName}\"", request.Length);
         socket.SendTo(request, SocketFlags.None, server);
 
         TftpTransfer.Arrival answer = default;
